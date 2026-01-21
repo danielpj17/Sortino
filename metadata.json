@@ -1,0 +1,5 @@
+{
+  "name": "Sortino",
+  "description": "A high-performance AI stock trading dashboard integrated with a Python-based Reinforcement Learning engine, Neon serverless Postgres, and Alpaca Paper Trading API.",
+  "requestFramePermissions": []
+}
