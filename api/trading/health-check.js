@@ -56,6 +56,13 @@ export default async function handler(req, res) {
     });
   } catch (e) {
     console.error('Health check error:', e);
+    const msg = e.message || '';
+    if (msg.includes('relation "bot_state" does not exist') || msg.includes('relation \'bot_state\' does not exist')) {
+      return res.status(503).json({
+        error: 'Database migration required',
+        hint: 'Run the bot_state schema in Neon SQL Editor. See HEARTBEAT_SETUP.md Step 1.',
+      });
+    }
     return res.status(500).json({ error: e.message });
   }
 }
