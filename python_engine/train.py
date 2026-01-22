@@ -3,32 +3,47 @@ import numpy as np
 import pandas as pd
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
-# Import the old environment
 from gym_anytrading.envs import StocksEnv
-import gymnasium as gym  # We need gymnasium for the wrapper
+import gymnasium as gym
 
-# --- CUSTOM WRAPPER (The Fix) ---
-# This manually forces the old Gym env to behave like a new Gymnasium env
+# Sortino-style reward: penalize downside volatility heavily.
+DOWNSIDE_PENALTY_FACTOR = 2.0   # multiply negative rewards (e.g. x2)
+DOWNSIDE_SQUARED = True         # square magnitude for heavier penalty on large losses
+
+def _sortino_reward(raw_reward: float) -> float:
+    """Apply Sortino principle: heavy penalty for negative returns."""
+    if raw_reward >= 0:
+        return raw_reward
+    mag = abs(raw_reward)
+    if DOWNSIDE_SQUARED:
+        return -(DOWNSIDE_PENALTY_FACTOR * (mag ** 2))
+    return raw_reward * DOWNSIDE_PENALTY_FACTOR
+
+# --- CUSTOM WRAPPER ---
+# Gymnasium compatibility + Sortino custom reward (penalize downside volatility).
 class GymnasiumWrapper(gym.Env):
     def __init__(self, df):
         super().__init__()
-        # Create the old env
         self.env = StocksEnv(df=df, window_size=10, frame_bound=(10, len(df)))
-        # Copy spaces (they are compatible enough)
         self.action_space = self.env.action_space
         self.observation_space = self.env.observation_space
-    
+
     def reset(self, seed=None, options=None):
-        # Old Gym returns just obs; New Gymnasium returns (obs, info)
         obs = self.env.reset()
+        if isinstance(obs, tuple):
+            obs = obs[0]
         return obs, {}
-    
+
     def step(self, action):
-        # Old Gym: obs, reward, done, info
-        obs, reward, done, info = self.env.step(action)
-        # New Gymnasium: obs, reward, terminated, truncated, info
-        return obs, reward, done, False, info
-    
+        out = self.env.step(action)
+        obs = out[0]
+        raw_reward = float(out[1])
+        terminated = out[2] if len(out) > 2 else False
+        truncated = out[3] if len(out) > 3 else False
+        info = out[4] if len(out) > 4 else {}
+        reward = _sortino_reward(raw_reward)
+        return obs, reward, terminated, truncated, info
+
     def render(self):
         return self.env.render()
 
@@ -63,8 +78,8 @@ def train_model():
                 print(f"Skipping {ticker}: Not enough data (Rows: {len(df)}).")
                 continue
 
-            # 2. Create Environment using our Custom Wrapper
-            env = DummyVecEnv([lambda: GymnasiumWrapper(df)])
+            # 2. Create Environment using our Custom Wrapper (capture df by value)
+            env = DummyVecEnv([lambda d=df: GymnasiumWrapper(d)])
 
             # 3. Initialize or Update Model
             if model is None:

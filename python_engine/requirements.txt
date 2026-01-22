@@ -5,4 +5,5 @@ stable-baselines3
 gym
 gym-anytrading
 pandas
+python-dotenv
 shimmy>=0.2.1
