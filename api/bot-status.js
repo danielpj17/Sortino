@@ -19,10 +19,26 @@ export default async function handler(req, res) {
         return res.status(500).json({ error: 'Database not configured' });
       }
 
-      const { account_id, strategy_name, account_type_display, allow_shorting } = req.body;
+      // Parse request body (Vercel should auto-parse JSON, but ensure it's an object)
+      let body = req.body;
+      if (typeof body === 'string') {
+        try {
+          body = JSON.parse(body);
+        } catch (e) {
+          return res.status(400).json({ error: 'Invalid JSON in request body' });
+        }
+      }
+
+      const { account_id, strategy_name, account_type_display, allow_shorting } = body;
 
       if (!account_id) {
         return res.status(400).json({ error: 'account_id is required' });
+      }
+
+      // Parse account_id as integer
+      const accountIdInt = parseInt(account_id, 10);
+      if (isNaN(accountIdInt)) {
+        return res.status(400).json({ error: 'account_id must be a valid number' });
       }
 
       const pool = getPool();
@@ -41,7 +57,7 @@ export default async function handler(req, res) {
         strategy_name || "Sortino's Model",
         account_type_display || 'CASH',
         allow_shorting || false,
-        account_id
+        accountIdInt
       ]);
 
       if (result.rows.length === 0) {
@@ -59,8 +75,8 @@ export default async function handler(req, res) {
         api_status: 'CONNECTED' // Could check API status here if needed
       });
     } catch (err) {
-      console.error('Database error:', err);
-      res.status(500).json({ error: 'Internal server error' });
+      console.error('Database error (POST):', err);
+      res.status(500).json({ error: 'Internal server error', details: err.message });
     }
     return;
   }
@@ -95,8 +111,13 @@ export default async function handler(req, res) {
     const params = [];
     
     if (account_id) {
+      // Parse account_id as integer
+      const accountIdInt = parseInt(account_id, 10);
+      if (isNaN(accountIdInt)) {
+        return res.status(400).json({ error: 'account_id must be a valid number' });
+      }
       query += ' WHERE id = $1';
-      params.push(account_id);
+      params.push(accountIdInt);
     } else {
       query += ' ORDER BY id LIMIT 1';
     }
@@ -151,7 +172,7 @@ export default async function handler(req, res) {
       api_status: apiStatus
     });
   } catch (err) {
-    console.error('Database error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('Database error (GET):', err);
+    res.status(500).json({ error: 'Internal server error', details: err.message });
   }
 }
