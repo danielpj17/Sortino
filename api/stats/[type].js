@@ -16,7 +16,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { type } = req.query;
+  const { type, account_id } = req.query;
 
   try {
     // Check if DATABASE_URL is set
@@ -26,7 +26,7 @@ export default async function handler(req, res) {
     }
 
     const pool = getPool();
-    const query = `
+    let query = `
       SELECT 
         SUM(t.pnl) as total_pnl, 
         COUNT(*) as total_trades,
@@ -35,7 +35,15 @@ export default async function handler(req, res) {
       JOIN accounts a ON t.account_id = a.id
       WHERE a.type = $1
     `;
-    const result = await pool.query(query, [type]);
+    const params = [type];
+    
+    // Add account_id filter if provided
+    if (account_id) {
+      query += ` AND t.account_id = $2`;
+      params.push(account_id);
+    }
+    
+    const result = await pool.query(query, params);
     const row = result.rows[0];
 
     const totalTrades = parseInt(row.total_trades || 0);

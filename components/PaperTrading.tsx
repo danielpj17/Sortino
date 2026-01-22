@@ -1,18 +1,57 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import MetricsGrid from './MetricsGrid';
 import PortfolioChart from './PortfolioChart';
-import { Clock, ShieldCheck } from 'lucide-react';
+import { Clock, ShieldCheck, ChevronDown } from 'lucide-react';
 
 const PaperTrading: React.FC = () => {
   const [trades, setTrades] = useState<any[]>([]);
   const [stats, setStats] = useState({ totalPnL: 0, winRate: 0, totalTrades: 0 });
+  const [accounts, setAccounts] = useState<any[]>([]);
+  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
+  const [isAccountDropdownOpen, setIsAccountDropdownOpen] = useState(false);
+  const accountDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Fetch accounts on mount
+  useEffect(() => {
+    const fetchAccounts = async () => {
+      try {
+        const res = await fetch('/api/accounts');
+        if (res.ok) {
+          const data = await res.json();
+          const paperAccounts = Array.isArray(data) ? data.filter((a: any) => a.type === 'Paper') : [];
+          setAccounts(paperAccounts);
+        }
+      } catch (error) {
+        console.error("Failed to fetch accounts", error);
+      }
+    };
+    fetchAccounts();
+  }, []);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (accountDropdownRef.current && !accountDropdownRef.current.contains(event.target as Node)) {
+        setIsAccountDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        // Fetch only PAPER trades
-        const tradesRes = await fetch('/api/trades/Paper');
-        const statsRes = await fetch('/api/stats/Paper');
+        // Build URL with optional account_id
+        const tradesUrl = selectedAccountId 
+          ? `/api/trades/Paper?account_id=${selectedAccountId}`
+          : '/api/trades/Paper';
+        const statsUrl = selectedAccountId
+          ? `/api/stats/Paper?account_id=${selectedAccountId}`
+          : '/api/stats/Paper';
+        
+        const tradesRes = await fetch(tradesUrl);
+        const statsRes = await fetch(statsUrl);
         
         if (tradesRes.ok) {
           const tradesData = await tradesRes.json();
@@ -36,13 +75,57 @@ const PaperTrading: React.FC = () => {
     fetchData();
     const interval = setInterval(fetchData, 5000); // Live refresh
     return () => clearInterval(interval);
-  }, []);
+  }, [selectedAccountId]);
+
+  const selectedAccount = selectedAccountId ? accounts.find(a => a.id === selectedAccountId) : null;
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-bold text-white">Paper Trading</h1>
-        <p className="text-zinc-500 text-sm">Simulated engine with live performance tracking.</p>
+      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div className="flex flex-col gap-1">
+          <h1 className="text-2xl font-bold text-white">Paper Trading</h1>
+          <p className="text-zinc-500 text-sm">Simulated engine with live performance tracking.</p>
+        </div>
+        
+        {/* Account Dropdown */}
+        <div className="relative" ref={accountDropdownRef}>
+          <label className="text-[10px] font-black uppercase tracking-widest text-zinc-600 mb-1.5 block px-1">Account</label>
+          <button 
+            onClick={() => setIsAccountDropdownOpen(!isAccountDropdownOpen)}
+            className={`flex items-center gap-3 bg-[#121212] border transition-all px-4 py-2.5 rounded-xl w-[200px] text-left group ${isAccountDropdownOpen ? 'border-[#86c7f3] ring-2 ring-[#86c7f3]/10' : 'border-zinc-800 hover:border-zinc-700'}`}
+          >
+            <div className="p-1.5 bg-[#86c7f3]/10 rounded-lg">
+              <ShieldCheck size={16} className="text-[#86c7f3]" />
+            </div>
+            <div className="flex-1 overflow-hidden">
+              <p className="text-zinc-200 text-xs font-bold truncate leading-tight">
+                {selectedAccount ? selectedAccount.name : 'All Accounts'}
+              </p>
+              <p className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Paper Trading</p>
+            </div>
+            <ChevronDown size={14} className={`text-zinc-500 transition-transform duration-300 ${isAccountDropdownOpen ? 'rotate-180' : ''}`} />
+          </button>
+
+          {isAccountDropdownOpen && (
+            <div className="absolute top-full right-0 mt-2 w-full bg-[#121212] border border-zinc-800 rounded-xl shadow-2xl z-50 py-2 animate-in slide-in-from-top-2 duration-200 overflow-hidden">
+              <button
+                onClick={() => { setSelectedAccountId(null); setIsAccountDropdownOpen(false); }}
+                className={`w-full px-4 py-3 flex items-center gap-3 transition-colors text-left hover:bg-zinc-800/50 ${!selectedAccountId ? 'bg-zinc-800/30' : ''}`}
+              >
+                <span className="text-xs font-bold text-zinc-300">All Accounts</span>
+              </button>
+              {accounts.map((account) => (
+                <button
+                  key={account.id}
+                  onClick={() => { setSelectedAccountId(account.id); setIsAccountDropdownOpen(false); }}
+                  className={`w-full px-4 py-3 flex items-center gap-3 transition-colors text-left hover:bg-zinc-800/50 ${selectedAccountId === account.id ? 'bg-zinc-800/30' : ''}`}
+                >
+                  <span className="text-xs font-bold text-zinc-300">{account.name}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Dynamic Metrics */}

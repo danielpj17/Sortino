@@ -6,53 +6,84 @@ const TradeHistory: React.FC = () => {
   const [filteredTrades, setFilteredTrades] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'All' | 'Live' | 'Paper'>('All');
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [accounts, setAccounts] = useState<any[]>([]);
+  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
+  const [isTypeDropdownOpen, setIsTypeDropdownOpen] = useState(false);
+  const [isAccountDropdownOpen, setIsAccountDropdownOpen] = useState(false);
   
-  const dropdownRef = useRef<HTMLDivElement>(null);
+  const typeDropdownRef = useRef<HTMLDivElement>(null);
+  const accountDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Fetch accounts on mount
+  useEffect(() => {
+    const fetchAccounts = async () => {
+      try {
+        const res = await fetch('/api/accounts');
+        if (res.ok) {
+          const data = await res.json();
+          setAccounts(Array.isArray(data) ? data : []);
+        }
+      } catch (error) {
+        console.error("Failed to fetch accounts", error);
+      }
+    };
+    fetchAccounts();
+  }, []);
+
+  // Get accounts filtered by selected type
+  const getFilteredAccounts = () => {
+    if (filterType === 'All') {
+      return accounts;
+    }
+    return accounts.filter(a => a.type === filterType);
+  };
+
+  // Reset account selection when type changes
+  useEffect(() => {
+    const filtered = getFilteredAccounts();
+    if (selectedAccountId && !filtered.find(a => a.id === selectedAccountId)) {
+      setSelectedAccountId(null);
+    }
+  }, [filterType, accounts, selectedAccountId]);
 
   // Fetch Real Data
   useEffect(() => {
     const fetchHistory = async () => {
       try {
-        const res = await fetch('/api/trades'); // Get ALL trades
+        let url = '/api/trades';
+        if (filterType !== 'All') {
+          url = `/api/trades/${filterType}`;
+          if (selectedAccountId) {
+            url += `?account_id=${selectedAccountId}`;
+          }
+        } else if (selectedAccountId) {
+          url = `/api/trades?account_id=${selectedAccountId}`;
+        }
+        
+        const res = await fetch(url);
         if (res.ok) {
           const data = await res.json();
           const safeData = Array.isArray(data) ? data : [];
           setTrades(safeData);
-          setFilteredTrades(safeData);
         } else {
           console.error("Failed to load history:", res.status);
           setTrades([]);
-          setFilteredTrades([]);
         }
       } catch (err) {
         console.error("Failed to load history:", err);
         setTrades([]);
-        setFilteredTrades([]);
       }
     };
     fetchHistory();
-  }, []);
+  }, [filterType, selectedAccountId]);
 
-  // Filter Logic (Search + Account Type)
+  // Filter Logic (Search only - type and account filtering done server-side)
   useEffect(() => {
     // Ensure trades is always an array
     const safeTrades = Array.isArray(trades) ? trades : [];
     let result = safeTrades;
 
-    // 1. Filter by Type
-    if (filterType !== 'All') {
-      // We check the account_id prefix (assuming 'live-' or 'acc-'/paper) 
-      // OR you can update the server to return account type. 
-      // For now, let's filter by the 'account_name' if available or ID convention.
-      result = result.filter(t => 
-        filterType === 'Live' 
-          ? (t.account_id && t.account_id.startsWith('live')) 
-          : (t.account_id && !t.account_id.startsWith('live'))
-      );
-    }
-
-    // 2. Filter by Search
+    // Filter by Search
     if (searchQuery) {
       const lowerQuery = searchQuery.toLowerCase();
       result = result.filter(t => 
@@ -63,13 +94,16 @@ const TradeHistory: React.FC = () => {
     }
 
     setFilteredTrades(result);
-  }, [searchQuery, filterType, trades]);
+  }, [searchQuery, trades]);
 
-  // Dropdown closer
+  // Close dropdowns on outside click
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setIsDropdownOpen(false);
+      if (typeDropdownRef.current && !typeDropdownRef.current.contains(event.target as Node)) {
+        setIsTypeDropdownOpen(false);
+      }
+      if (accountDropdownRef.current && !accountDropdownRef.current.contains(event.target as Node)) {
+        setIsAccountDropdownOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -87,32 +121,72 @@ const TradeHistory: React.FC = () => {
         </div>
         
         <div className="flex items-center gap-3">
-          {/* Account Filter Dropdown */}
-          <div className="relative" ref={dropdownRef}>
-            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-600 mb-1.5 block px-1">Filter View</label>
+          {/* Account Type Filter Dropdown */}
+          <div className="relative" ref={typeDropdownRef}>
+            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-600 mb-1.5 block px-1">Type</label>
             <button 
-              onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-              className={`flex items-center gap-3 bg-[#121212] border transition-all px-4 py-2.5 rounded-xl w-[200px] text-left group ${isDropdownOpen ? 'border-[#86c7f3] ring-2 ring-[#86c7f3]/10' : 'border-zinc-800 hover:border-zinc-700'}`}
+              onClick={() => setIsTypeDropdownOpen(!isTypeDropdownOpen)}
+              className={`flex items-center gap-3 bg-[#121212] border transition-all px-4 py-2.5 rounded-xl w-[160px] text-left group ${isTypeDropdownOpen ? 'border-[#86c7f3] ring-2 ring-[#86c7f3]/10' : 'border-zinc-800 hover:border-zinc-700'}`}
             >
               <div className="p-1.5 bg-[#86c7f3]/10 rounded-lg">
                 {filterType === 'Live' ? <Activity size={16} className="text-[#86c7f3]" /> : <ShieldCheck size={16} className="text-[#86c7f3]" />}
               </div>
               <div className="flex-1 overflow-hidden">
-                <p className="text-zinc-200 text-xs font-bold truncate leading-tight">{filterType} Trades</p>
-                <p className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Global Ledger</p>
+                <p className="text-zinc-200 text-xs font-bold truncate leading-tight">{filterType}</p>
+                <p className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Account Type</p>
               </div>
-              <ChevronDown size={14} className={`text-zinc-500 transition-transform duration-300 ${isDropdownOpen ? 'rotate-180' : ''}`} />
+              <ChevronDown size={14} className={`text-zinc-500 transition-transform duration-300 ${isTypeDropdownOpen ? 'rotate-180' : ''}`} />
             </button>
 
-            {isDropdownOpen && (
+            {isTypeDropdownOpen && (
               <div className="absolute top-full right-0 mt-2 w-full bg-[#121212] border border-zinc-800 rounded-xl shadow-2xl z-50 py-2 animate-in slide-in-from-top-2 duration-200 overflow-hidden">
                 {['All', 'Paper', 'Live'].map((type) => (
                   <button
                     key={type}
-                    onClick={() => { setFilterType(type as any); setIsDropdownOpen(false); }}
-                    className={`w-full px-4 py-3 flex items-center gap-3 transition-colors text-left hover:bg-zinc-800/50`}
+                    onClick={() => { setFilterType(type as any); setIsTypeDropdownOpen(false); }}
+                    className={`w-full px-4 py-3 flex items-center gap-3 transition-colors text-left hover:bg-zinc-800/50 ${filterType === type ? 'bg-zinc-800/30' : ''}`}
                   >
-                    <span className="text-xs font-bold text-zinc-300">{type} Trades</span>
+                    <span className="text-xs font-bold text-zinc-300">{type}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Account Filter Dropdown */}
+          <div className="relative" ref={accountDropdownRef}>
+            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-600 mb-1.5 block px-1">Account</label>
+            <button 
+              onClick={() => setIsAccountDropdownOpen(!isAccountDropdownOpen)}
+              className={`flex items-center gap-3 bg-[#121212] border transition-all px-4 py-2.5 rounded-xl w-[200px] text-left group ${isAccountDropdownOpen ? 'border-[#86c7f3] ring-2 ring-[#86c7f3]/10' : 'border-zinc-800 hover:border-zinc-700'}`}
+            >
+              <div className="p-1.5 bg-[#86c7f3]/10 rounded-lg">
+                <ShieldCheck size={16} className="text-[#86c7f3]" />
+              </div>
+              <div className="flex-1 overflow-hidden">
+                <p className="text-zinc-200 text-xs font-bold truncate leading-tight">
+                  {selectedAccountId ? accounts.find(a => a.id === selectedAccountId)?.name || 'Unknown' : 'All Accounts'}
+                </p>
+                <p className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Select Account</p>
+              </div>
+              <ChevronDown size={14} className={`text-zinc-500 transition-transform duration-300 ${isAccountDropdownOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {isAccountDropdownOpen && (
+              <div className="absolute top-full right-0 mt-2 w-full bg-[#121212] border border-zinc-800 rounded-xl shadow-2xl z-50 py-2 animate-in slide-in-from-top-2 duration-200 overflow-hidden max-h-[300px] overflow-y-auto">
+                <button
+                  onClick={() => { setSelectedAccountId(null); setIsAccountDropdownOpen(false); }}
+                  className={`w-full px-4 py-3 flex items-center gap-3 transition-colors text-left hover:bg-zinc-800/50 ${!selectedAccountId ? 'bg-zinc-800/30' : ''}`}
+                >
+                  <span className="text-xs font-bold text-zinc-300">All Accounts</span>
+                </button>
+                {getFilteredAccounts().map((account) => (
+                  <button
+                    key={account.id}
+                    onClick={() => { setSelectedAccountId(account.id); setIsAccountDropdownOpen(false); }}
+                    className={`w-full px-4 py-3 flex items-center gap-3 transition-colors text-left hover:bg-zinc-800/50 ${selectedAccountId === account.id ? 'bg-zinc-800/30' : ''}`}
+                  >
+                    <span className="text-xs font-bold text-zinc-300">{account.name}</span>
                   </button>
                 ))}
               </div>

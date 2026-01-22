@@ -23,14 +23,25 @@ export default async function handler(req, res) {
       return res.status(500).json([]);
     }
 
+    const { account_id } = req.query;
     const pool = getPool();
-    const result = await pool.query(`
+    
+    let query = `
       SELECT t.*, a.name as account_name 
       FROM trades t 
-      JOIN accounts a ON t.account_id = a.id 
-      ORDER BY t.timestamp DESC 
-      LIMIT 100
-    `);
+      JOIN accounts a ON t.account_id = a.id
+    `;
+    const params = [];
+    
+    // Add account_id filter if provided
+    if (account_id) {
+      query += ` WHERE t.account_id = $1`;
+      params.push(account_id);
+    }
+    
+    query += ` ORDER BY t.timestamp DESC LIMIT 100`;
+    
+    const result = await pool.query(query, params);
     res.status(200).json(result.rows || []);
   } catch (err) {
     console.error('Database error:', err);
