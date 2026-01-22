@@ -1,0 +1,8 @@
+psycopg2-binary
+alpaca-trade-api
+yfinance
+stable-baselines3
+gym
+gym-anytrading
+pandas
+shimmy>=0.2.1

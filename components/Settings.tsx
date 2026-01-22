@@ -1,5 +1,4 @@
-
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   ShieldCheck, 
   Activity, 
@@ -14,18 +13,22 @@ import {
 } from 'lucide-react';
 import { Account, AccountType } from '../types';
 
-const INITIAL_PAPER_ACCOUNTS: Account[] = [
-  { id: 'acc-001', name: 'Standard Strategy', type: 'Paper', apiKey: 'PK...A1B2', status: 'Connected', createdAt: '2024-01-15' },
-  { id: 'acc-002', name: 'Aggressive Alpha', type: 'Paper', apiKey: 'PK...C3D4', status: 'Connected', createdAt: '2024-02-10' },
-];
-
-const INITIAL_LIVE_ACCOUNTS: Account[] = [
-  { id: 'live-001', name: 'Primary Alpaca Brokerage', type: 'Live', apiKey: 'AK...Z9X8', status: 'Connected', createdAt: '2023-11-20' },
-];
+// STORAGE KEYS for persistence
+const STORAGE_KEY_PAPER = 'sortino_paper_accounts';
+const STORAGE_KEY_LIVE = 'sortino_live_accounts';
 
 const Settings: React.FC = () => {
-  const [paperAccounts, setPaperAccounts] = useState<Account[]>(INITIAL_PAPER_ACCOUNTS);
-  const [liveAccounts, setLiveAccounts] = useState<Account[]>(INITIAL_LIVE_ACCOUNTS);
+  // Initialize state from LocalStorage if available, otherwise default to empty array
+  const [paperAccounts, setPaperAccounts] = useState<Account[]>(() => {
+    const saved = localStorage.getItem(STORAGE_KEY_PAPER);
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  const [liveAccounts, setLiveAccounts] = useState<Account[]>(() => {
+    const saved = localStorage.getItem(STORAGE_KEY_LIVE);
+    return saved ? JSON.parse(saved) : [];
+  });
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalType, setModalType] = useState<AccountType>('Paper');
   
@@ -33,6 +36,15 @@ const Settings: React.FC = () => {
   const [newAccountName, setNewAccountName] = useState('');
   const [newApiKey, setNewApiKey] = useState('');
   const [newSecretKey, setNewSecretKey] = useState('');
+
+  // Save to LocalStorage whenever accounts change
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY_PAPER, JSON.stringify(paperAccounts));
+  }, [paperAccounts]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY_LIVE, JSON.stringify(liveAccounts));
+  }, [liveAccounts]);
 
   const openAddModal = (type: AccountType) => {
     setModalType(type);
@@ -45,8 +57,9 @@ const Settings: React.FC = () => {
       id: `${modalType.toLowerCase()}-${Date.now()}`,
       name: newAccountName,
       type: modalType,
+      // We store the masked key for display, but in a real app you'd send the full key to your backend
       apiKey: `${newApiKey.substring(0, 4)}...${newApiKey.substring(newApiKey.length - 4)}`,
-      status: 'Connected',
+      status: 'Connected', // Assume connected for now
       createdAt: new Date().toISOString().split('T')[0]
     };
 
@@ -109,7 +122,7 @@ const Settings: React.FC = () => {
           <div className="space-y-1">
             <h3 className="text-sm font-bold text-zinc-200">API Connectivity Notice</h3>
             <p className="text-xs text-zinc-500 leading-relaxed max-w-2xl">
-              All accounts use the Alpaca Markets API for order execution and market data. Please ensure your API keys have "Account" and "Trading" permissions enabled. Secret keys are encrypted client-side and never stored in plain text on our servers.
+              All accounts use the Alpaca Markets API. Keys are currently stored locally in your browser for demonstration purposes. In a production environment, these would be encrypted and stored in your Postgres database.
             </p>
           </div>
         </div>
@@ -266,7 +279,7 @@ const AccountSection: React.FC<SectionProps> = ({ title, description, accounts, 
                       <ExternalLink size={14} />
                     </button>
                     <button 
-                      onClick={() => onDelete(acc.id)}
+                      onClick={() => onDelete(acc.id, acc.type)}
                       className="p-2 text-zinc-600 hover:text-rose-500 transition-colors" 
                       title="Remove Account"
                     >

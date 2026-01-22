@@ -1,57 +1,68 @@
-
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import MetricsGrid from './MetricsGrid';
 import PortfolioChart from './PortfolioChart';
 import RecentTrades from './RecentTrades';
-import { Trade, TradeAction } from '../types';
-
-const MOCK_TRADES: Trade[] = [
-  { id: 1, timestamp: '2024-03-10T14:30:00Z', ticker: 'AAPL', action: TradeAction.BUY, price: 172.45, quantity: 1, strategy: 'PPO-Alpha', pnl: 0 },
-  { id: 2, timestamp: '2024-03-11T09:15:00Z', ticker: 'AAPL', action: TradeAction.SELL, price: 175.20, quantity: 1, strategy: 'PPO-Alpha', pnl: 2.75 },
-  { id: 3, timestamp: '2024-03-12T10:45:00Z', ticker: 'TSLA', action: TradeAction.BUY, price: 180.10, quantity: 2, strategy: 'PPO-Alpha', pnl: 0 },
-  { id: 4, timestamp: '2024-03-14T11:00:00Z', ticker: 'TSLA', action: TradeAction.SELL, price: 178.50, quantity: 2, strategy: 'PPO-Alpha', pnl: -3.20 },
-  { id: 5, timestamp: '2024-03-15T16:00:00Z', ticker: 'NVDA', action: TradeAction.BUY, price: 850.12, quantity: 1, strategy: 'PPO-Alpha', pnl: 0 },
-];
+import { Trade } from '../types';
 
 const Dashboard: React.FC = () => {
+  const [trades, setTrades] = useState<Trade[]>([]);
+  const [stats, setStats] = useState({ totalPnL: 0, winRate: 0, totalTrades: 0 });
+
+  // Fetch Data from our Bridge Server
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        // 1. Get Trades
+        const tradesRes = await fetch('/api/trades');
+        const tradesData = await tradesRes.json();
+        setTrades(tradesData);
+
+        // 2. Get Stats
+        const statsRes = await fetch('/api/stats');
+        const statsData = await statsRes.json();
+        setStats(statsData);
+      } catch (error) {
+        console.error("Failed to fetch dashboard data:", error);
+      }
+    };
+
+    fetchData();
+    // Refresh every 5 seconds for "Live" feel
+    const interval = setInterval(fetchData, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500 max-w-full overflow-x-hidden">
-      {/* Unified Header Layout */}
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl font-bold tracking-tight text-white">Dashboard</h1>
-          <p className="text-zinc-500 text-sm font-medium">Real-time performance metrics for your AI agent.</p>
-        </div>
-        
-        {/* Placeholder to match height of account selector on other pages */}
-        <div className="h-[68px] hidden md:block pointer-events-none opacity-0" aria-hidden="true">
-          <label className="text-[10px] mb-1.5 block">Spacer</label>
-          <div className="w-[240px] h-[46px] rounded-xl" />
+          <p className="text-zinc-500 text-sm font-medium">Real-time performance metrics (Live Connection).</p>
         </div>
       </div>
 
       <MetricsGrid 
-        totalPnL={1245.80}
-        portfolioEquity={15420.50}
-        positionValue={8240.00}
-        availableCash={7180.50}
-        winRate={68.5}
-        totalTrades={142}
-        profitableTrades={97}
-        lossTrades={45}
+        totalPnL={stats.totalPnL}
+        // These can be calculated or fetched later, sticking to stats for now
+        portfolioEquity={10000 + stats.totalPnL} 
+        positionValue={0}
+        availableCash={10000} 
+        winRate={stats.winRate}
+        totalTrades={stats.totalTrades}
+        profitableTrades={0} // You can add a query for this too!
+        lossTrades={0}
       />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 bg-[#121212] rounded-2xl p-6 border border-zinc-800 shadow-sm">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-zinc-200">Portfolio Performance</h2>
-          </div>
+          <h2 className="text-lg font-semibold text-zinc-200 mb-4">Portfolio Performance</h2>
           <PortfolioChart />
         </div>
 
         <div className="bg-[#121212] rounded-2xl p-6 border border-zinc-800 shadow-sm">
           <h2 className="text-lg font-semibold text-zinc-200 mb-6">Recent Activity</h2>
-          <RecentTrades trades={MOCK_TRADES} />
+          {/* Pass the real DB trades here */}
+          <RecentTrades trades={trades} />
         </div>
       </div>
     </div>
