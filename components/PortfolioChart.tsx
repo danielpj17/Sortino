@@ -29,10 +29,10 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({ type = 'Paper', account
       setLoading(true);
       try {
         const accountParam = accountId ? `&account_id=${accountId}` : '';
-        const res = await fetch(`/api/portfolio-equity?type=${type}&range=${range}${accountParam}`);
+        const res = await fetch(`/api/stats/${type}?includeEquity=true&range=${range}${accountParam}`);
         if (res.ok) {
           const data = await res.json();
-          setChartData(data.data || []);
+          setChartData(data.equityData || []);
         } else {
           setChartData([]);
         }
