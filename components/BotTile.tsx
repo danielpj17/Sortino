@@ -40,16 +40,13 @@ const BotTile: React.FC<BotTileProps> = ({ accountId, onStartBot, onViewLogs }) 
   return (
     <div className="bg-[#121212] border border-zinc-800 rounded-2xl p-6 shadow-sm">
       <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setIsConfigModalOpen(true)}
-            className="relative hover:opacity-80 transition-opacity cursor-pointer"
-          >
-            <Settings size={20} className="text-zinc-400" />
-            <div className="absolute -top-1 -right-1 w-2 h-2 bg-rose-500 rounded-full"></div>
-          </button>
-          <h2 className="text-base font-bold text-zinc-200 uppercase tracking-tight">BOT STATUS</h2>
-        </div>
+        <h2 className="text-base font-bold text-zinc-200 uppercase tracking-tight">BOT STATUS</h2>
+        <button
+          onClick={() => setIsConfigModalOpen(true)}
+          className="hover:opacity-80 transition-opacity cursor-pointer"
+        >
+          <Settings size={20} className="text-zinc-400" />
+        </button>
       </div>
 
       <div className="space-y-4 mb-6">

@@ -43,28 +43,62 @@ export default async function handler(req, res) {
 
       const pool = getPool();
       
-      // Update account settings
-      const updateQuery = `
+      // First, ensure columns exist by attempting to update them
+      // If columns don't exist, this will fail gracefully
+      let updateQuery = `
         UPDATE accounts 
         SET strategy_name = $1,
             account_type_display = $2,
             allow_shorting = $3
         WHERE id = $4
-        RETURNING id, name, bot_name, account_type_display, strategy_name, allow_shorting
       `;
       
-      const result = await pool.query(updateQuery, [
-        strategy_name || "Sortino's Model",
-        account_type_display || 'CASH',
-        allow_shorting || false,
-        accountIdInt
-      ]);
+      try {
+        await pool.query(updateQuery, [
+          strategy_name || "Sortino's Model",
+          account_type_display || 'CASH',
+          allow_shorting || false,
+          accountIdInt
+        ]);
+      } catch (updateErr) {
+        // If columns don't exist, return error suggesting migration
+        if (updateErr.message && updateErr.message.includes('column') && updateErr.message.includes('does not exist')) {
+          return res.status(500).json({ 
+            error: 'Database schema not up to date. Please run the migration SQL from schema.sql',
+            details: 'Missing columns: strategy_name, account_type_display, or allow_shorting'
+          });
+        }
+        throw updateErr;
+      }
+      
+      // Fetch updated account
+      const fetchQuery = `
+        SELECT 
+          id,
+          name,
+          COALESCE(bot_name, 'ALPHA-01') as bot_name,
+          COALESCE(account_type_display, 'CASH') as account_type_display,
+          COALESCE(strategy_name, 'Sortino''s Model') as strategy_name,
+          COALESCE(allow_shorting, FALSE) as allow_shorting
+        FROM accounts
+        WHERE id = $1
+      `;
+      
+      const result = await pool.query(fetchQuery, [accountIdInt]);
 
       if (result.rows.length === 0) {
         return res.status(404).json({ error: 'Account not found' });
       }
 
       const account = result.rows[0];
+      
+      // If extended columns don't exist, use defaults
+      if (account.bot_name === undefined) {
+        account.bot_name = 'ALPHA-01';
+        account.account_type_display = account_type_display || 'CASH';
+        account.strategy_name = strategy_name || "Sortino's Model";
+        account.allow_shorting = allow_shorting || false;
+      }
 
       res.status(200).json({
         account_name: account.name || 'STANDARD STRATEGY',
@@ -95,6 +129,7 @@ export default async function handler(req, res) {
     const { account_id } = req.query;
     const pool = getPool();
     
+    // Try full query with extended columns first
     let query = `
       SELECT 
         id,
@@ -122,7 +157,28 @@ export default async function handler(req, res) {
       query += ' ORDER BY id LIMIT 1';
     }
     
-    const result = await pool.query(query, params);
+    let result;
+    try {
+      result = await pool.query(query, params);
+    } catch (queryErr) {
+      // If columns don't exist, fall back to basic query
+      if (queryErr.message && queryErr.message.includes('column') && queryErr.message.includes('does not exist')) {
+        console.warn('Extended columns not available, using basic query');
+        const basicQuery = `
+          SELECT 
+            id,
+            name,
+            api_key,
+            secret_key,
+            type
+          FROM accounts
+          ${account_id ? 'WHERE id = $1' : 'ORDER BY id LIMIT 1'}
+        `;
+        result = await pool.query(basicQuery, params);
+      } else {
+        throw queryErr;
+      }
+    }
     
     if (result.rows.length === 0) {
       return res.status(200).json({
@@ -136,6 +192,12 @@ export default async function handler(req, res) {
     }
 
     const account = result.rows[0];
+    
+    // Use extended columns if available, otherwise use defaults
+    const bot_name = account.bot_name !== undefined ? account.bot_name : 'ALPHA-01';
+    const account_type_display = account.account_type_display !== undefined ? account.account_type_display : 'CASH';
+    const strategy_name = account.strategy_name !== undefined ? account.strategy_name : "Sortino's Model";
+    const allow_shorting = account.allow_shorting !== undefined ? account.allow_shorting : false;
     
     // Check API status by attempting to connect to Alpaca
     let apiStatus = 'CONNECTED';
@@ -165,10 +227,10 @@ export default async function handler(req, res) {
 
     res.status(200).json({
       account_name: account.name || 'STANDARD STRATEGY',
-      bot_name: account.bot_name,
-      account_type_display: account.account_type_display,
-      strategy_name: account.strategy_name,
-      allow_shorting: account.allow_shorting || false,
+      bot_name: bot_name,
+      account_type_display: account_type_display,
+      strategy_name: strategy_name,
+      allow_shorting: allow_shorting,
       api_status: apiStatus
     });
   } catch (err) {
