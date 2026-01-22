@@ -1,3 +1,4 @@
+import os
 import yfinance as yf
 import numpy as np
 import pandas as pd
@@ -5,6 +6,23 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
 from gym_anytrading.envs import StocksEnv
 import gymnasium as gym
+from dotenv import load_dotenv
+from model_manager import save_model_version
+
+# Load environment variables
+_load_dirs = [
+    os.path.join(os.path.dirname(__file__), ".."),
+    os.path.dirname(__file__),
+]
+for _d in _load_dirs:
+    _e = os.path.join(_d, ".env")
+    if os.path.isfile(_e):
+        load_dotenv(_e)
+        break
+else:
+    load_dotenv()
+
+NEON_DATABASE_URL = os.getenv("DATABASE_URL")
 
 # Sortino-style reward: penalize downside volatility heavily.
 DOWNSIDE_PENALTY_FACTOR = 2.0   # multiply negative rewards (e.g. x2)
@@ -96,8 +114,26 @@ def train_model():
 
     # 5. Save Final Model
     if model:
+        # Save to default path for backward compatibility
         model.save(save_path)
-        print(f"\nSUCCESS: Multi-Asset Model saved to {save_path}")
+        print(f"\nModel saved to {save_path}")
+        
+        # Also save with versioning if database is available
+        if NEON_DATABASE_URL:
+            try:
+                version = save_model_version(
+                    model,
+                    NEON_DATABASE_URL,
+                    training_type="initial",
+                    total_experiences=0,
+                    notes="Initial training on historical data (2015-2024)"
+                )
+                if version:
+                    print(f"Model version {version} saved to database")
+            except Exception as e:
+                print(f"Warning: Could not save model version to database: {e}")
+        
+        print(f"\nSUCCESS: Multi-Asset Model training complete")
     else:
         print("\nFAILURE: Model was never initialized.")
 
