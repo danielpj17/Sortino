@@ -36,12 +36,6 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'account_id is required' });
       }
 
-      // Parse account_id as integer
-      const accountIdInt = parseInt(account_id, 10);
-      if (isNaN(accountIdInt)) {
-        return res.status(400).json({ error: 'account_id must be a valid number' });
-      }
-
       const pool = getPool();
       
       // First, ensure columns exist by attempting to update them
@@ -59,7 +53,7 @@ export default async function handler(req, res) {
           strategy_name || "Sortino's Model",
           account_type_display || 'CASH',
           allow_shorting || false,
-          accountIdInt
+          account_id
         ]);
       } catch (updateErr) {
         // If columns don't exist, return error suggesting migration
@@ -85,7 +79,7 @@ export default async function handler(req, res) {
         WHERE id = $1
       `;
       
-      const result = await pool.query(fetchQuery, [accountIdInt]);
+      const result = await pool.query(fetchQuery, [account_id]);
 
       if (result.rows.length === 0) {
         return res.status(404).json({ error: 'Account not found' });
@@ -147,13 +141,8 @@ export default async function handler(req, res) {
     const params = [];
     
     if (account_id) {
-      // Parse account_id as integer
-      const accountIdInt = parseInt(account_id, 10);
-      if (isNaN(accountIdInt)) {
-        return res.status(400).json({ error: 'account_id must be a valid number' });
-      }
       query += ' WHERE id = $1';
-      params.push(accountIdInt);
+      params.push(account_id);
     } else {
       query += ' ORDER BY id LIMIT 1';
     }

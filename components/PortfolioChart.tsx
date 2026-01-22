@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   AreaChart, 
   Area, 
@@ -13,43 +13,52 @@ import { TrendingUp, TrendingDown } from 'lucide-react';
 
 type TimeRange = '1D' | '1W' | '1M' | '1Y' | 'YTD';
 
-const CHART_DATA: Record<TimeRange, { time: string, value: number }[]> = {
-  '1D': [
-    { time: '09:00', value: 12000 }, { time: '11:00', value: 12150 }, { time: '13:00', value: 12050 }, 
-    { time: '15:00', value: 12300 }, { time: '17:00', value: 12450 }
-  ],
-  '1W': [
-    { time: 'Mon', value: 11800 }, { time: 'Tue', value: 12000 }, { time: 'Wed', value: 11900 }, 
-    { time: 'Thu', value: 12200 }, { time: 'Fri', value: 12450 }
-  ],
-  '1M': [
-    { time: '01 Mar', value: 10000 }, { time: '05 Mar', value: 10250 }, { time: '10 Mar', value: 9800 },
-    { time: '15 Mar', value: 10500 }, { time: '20 Mar', value: 11200 }, { time: '25 Mar', value: 10900 },
-    { time: '30 Mar', value: 11500 }, { time: '04 Apr', value: 12100 }, { time: '08 Apr', value: 11900 },
-    { time: '12 Apr', value: 12450 }
-  ],
-  '1Y': [
-    { time: 'Apr 23', value: 8500 }, { time: 'Jun 23', value: 9200 }, { time: 'Aug 23', value: 9800 },
-    { time: 'Oct 23', value: 9400 }, { time: 'Dec 23', value: 10500 }, { time: 'Feb 24', value: 11200 },
-    { time: 'Apr 24', value: 12450 }
-  ],
-  'YTD': [
-    { time: 'Jan', value: 10500 }, { time: 'Feb', value: 11200 }, { time: 'Mar', value: 11800 },
-    { time: 'Apr', value: 12450 }
-  ]
-};
+interface PortfolioChartProps {
+  type?: 'Paper' | 'Live';
+  accountId?: string | null;
+  currentEquity?: number;
+}
 
-const PortfolioChart: React.FC = () => {
+const PortfolioChart: React.FC<PortfolioChartProps> = ({ type = 'Paper', accountId, currentEquity }) => {
   const [range, setRange] = useState<TimeRange>('1D');
+  const [chartData, setChartData] = useState<{ time: string, value: number }[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      setLoading(true);
+      try {
+        const accountParam = accountId ? `&account_id=${accountId}` : '';
+        const res = await fetch(`/api/portfolio-equity?type=${type}&range=${range}${accountParam}`);
+        if (res.ok) {
+          const data = await res.json();
+          setChartData(data.data || []);
+        } else {
+          setChartData([]);
+        }
+      } catch (error) {
+        console.error('Failed to fetch portfolio equity data', error);
+        setChartData([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchData();
+    const interval = setInterval(fetchData, 30000); // Refresh every 30s
+    return () => clearInterval(interval);
+  }, [type, accountId, range]);
 
   const stats = useMemo(() => {
-    const data = CHART_DATA[range];
-    const startValue = data[0].value;
-    const endValue = data[data.length - 1].value;
+    if (chartData.length === 0) {
+      return { diff: 0, percent: 0 };
+    }
+    const startValue = chartData[0].value;
+    const endValue = chartData[chartData.length - 1].value;
     const diff = endValue - startValue;
-    const percent = (diff / startValue) * 100;
+    const percent = startValue > 0 ? (diff / startValue) * 100 : 0;
     return { diff, percent };
-  }, [range]);
+  }, [chartData]);
 
   return (
     <div className="space-y-4">
@@ -87,8 +96,17 @@ const PortfolioChart: React.FC = () => {
       </div>
 
       <div className="h-[280px] w-full pt-2">
-        <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={CHART_DATA[range]}>
+        {loading ? (
+          <div className="h-full flex items-center justify-center text-zinc-500 text-sm">
+            Loading chart data...
+          </div>
+        ) : chartData.length === 0 ? (
+          <div className="h-full flex items-center justify-center text-zinc-500 text-sm">
+            No data available
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={chartData}>
             <defs>
               <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor="#86c7f3" stopOpacity={0.15}/>
@@ -127,6 +145,7 @@ const PortfolioChart: React.FC = () => {
             />
           </AreaChart>
         </ResponsiveContainer>
+        )}
       </div>
     </div>
   );

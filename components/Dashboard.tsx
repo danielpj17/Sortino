@@ -63,22 +63,31 @@ const Dashboard: React.FC = () => {
         </div>
       </div>
 
-      <MetricsGrid 
-        totalPnL={stats.totalPnL}
-        // These can be calculated or fetched later, sticking to stats for now
-        portfolioEquity={10000 + stats.totalPnL} 
-        positionValue={0}
-        availableCash={10000} 
-        winRate={stats.winRate}
-        totalTrades={stats.totalTrades}
-        profitableTrades={0} // You can add a query for this too!
-        lossTrades={0}
-      />
+      {/* Calculate portfolio equity - using default starting capital for Dashboard */}
+      {(() => {
+        const startingCapital = 10000; // Default for Dashboard
+        const portfolioEquity = startingCapital + stats.totalPnL;
+        const percentChange = startingCapital > 0 ? ((portfolioEquity - startingCapital) / startingCapital) * 100 : 0;
+        
+        return (
+          <MetricsGrid 
+            totalPnL={stats.totalPnL}
+            portfolioEquity={portfolioEquity} 
+            positionValue={0}
+            availableCash={10000} 
+            winRate={stats.winRate}
+            totalTrades={stats.totalTrades}
+            profitableTrades={0}
+            lossTrades={0}
+            percentChange={percentChange}
+          />
+        );
+      })()}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 bg-[#121212] rounded-2xl p-6 border border-zinc-800 shadow-sm">
           <h2 className="text-lg font-semibold text-zinc-200 mb-4">Portfolio Performance</h2>
-          <PortfolioChart />
+          <PortfolioChart type="Live" currentEquity={10000 + stats.totalPnL} />
         </div>
 
         <div className="bg-[#121212] rounded-2xl p-6 border border-zinc-800 shadow-sm">

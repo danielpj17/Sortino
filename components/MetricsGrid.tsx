@@ -11,6 +11,7 @@ interface MetricsProps {
   totalTrades: number;
   profitableTrades: number;
   lossTrades: number;
+  percentChange?: number;
 }
 
 const MetricsGrid: React.FC<MetricsProps> = ({ 
@@ -21,7 +22,8 @@ const MetricsGrid: React.FC<MetricsProps> = ({
   winRate, 
   totalTrades,
   profitableTrades,
-  lossTrades
+  lossTrades,
+  percentChange
 }) => {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -35,7 +37,7 @@ const MetricsGrid: React.FC<MetricsProps> = ({
         }
         icon={<Wallet size={18} />} 
         color="sky"
-        trend={+12.5}
+        trend={percentChange !== undefined ? percentChange : undefined}
       />
       <MetricCard 
         title="Position / Cash" 

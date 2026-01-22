@@ -204,6 +204,22 @@ const PaperTrading: React.FC = () => {
 
   const selectedAccount = selectedAccountId ? accounts.find(a => a.id === selectedAccountId) : null;
 
+  // Calculate portfolio equity
+  const startingCapital = 100000;
+  const totalPnL = stats.totalPnL;
+  const unrealizedPnL = openPositions.reduce((sum, p) => {
+    if (p.marketPrice && p.buyTrade) {
+      return sum + (p.marketPrice - p.buyTrade.price) * p.buyTrade.quantity;
+    }
+    return sum;
+  }, 0);
+  const portfolioEquity = startingCapital + totalPnL + unrealizedPnL;
+  const positionValue = openPositions.reduce((sum, p) => sum + (p.positionValue || 0), 0);
+  const availableCash = Math.max(0, startingCapital - positionValue + totalPnL);
+
+  // Calculate percent change (from starting capital)
+  const percentChange = startingCapital > 0 ? ((portfolioEquity - startingCapital) / startingCapital) * 100 : 0;
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
@@ -255,13 +271,14 @@ const PaperTrading: React.FC = () => {
 
       {/* Dynamic Metrics */}
       <MetricsGrid 
-        totalPnL={stats.totalPnL} 
-        portfolioEquity={100000 + stats.totalPnL}
-        positionValue={openPositions.reduce((sum, p) => sum + (p.positionValue || 0), 0)}
-        availableCash={100000}
+        totalPnL={totalPnL + unrealizedPnL} 
+        portfolioEquity={portfolioEquity}
+        positionValue={positionValue}
+        availableCash={availableCash}
         winRate={Number(stats.winRate)} 
         totalTrades={stats.totalTrades} 
         profitableTrades={0} lossTrades={0}
+        percentChange={percentChange}
       />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -325,7 +342,7 @@ const PaperTrading: React.FC = () => {
           />
         </div>
         <div className="lg:col-span-2 bg-[#121212] rounded-2xl p-6 border border-zinc-800">
-          <PortfolioChart />
+          <PortfolioChart type="Paper" accountId={selectedAccountId} currentEquity={portfolioEquity} />
         </div>
       </div>
 
