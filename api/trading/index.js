@@ -19,8 +19,8 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'GET') {
-    const accountId = req.query?.account_id != null ? parseInt(req.query.account_id, 10) : NaN;
-    if (!accountId || isNaN(accountId)) {
+    const accountId = req.query?.account_id;
+    if (!accountId) {
       return res.status(400).json({ error: 'account_id required' });
     }
     try {
@@ -68,9 +68,9 @@ export default async function handler(req, res) {
   }
 
   const { account_id, action } = body || {};
-  const accountId = account_id != null ? parseInt(account_id, 10) : NaN;
+  const accountId = account_id;
 
-  if (!accountId || isNaN(accountId)) {
+  if (!accountId) {
     return res.status(400).json({ error: 'account_id required' });
   }
 

@@ -150,8 +150,9 @@ const BotTile: React.FC<BotTileProps> = ({ accountId, onStartBot, onStopBot, onV
           </button>
         )}
         <button
-          onClick={onViewLogs}
-          className="bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-bold text-xs uppercase tracking-widest py-3 px-4 rounded-xl transition-colors"
+          onClick={onViewLogs || (() => alert('Please select an account first'))}
+          disabled={!accountId}
+          className="bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed text-zinc-200 font-bold text-xs uppercase tracking-widest py-3 px-4 rounded-xl transition-colors"
         >
           <FileText size={14} />
         </button>

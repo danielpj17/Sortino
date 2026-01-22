@@ -265,7 +265,10 @@ const LiveTrading: React.FC = () => {
           <BotTile
             accountId={selectedAccountId}
             onStartBot={async () => {
-              if (!selectedAccountId) return;
+              if (!selectedAccountId) {
+                alert('Please select an account first');
+                return;
+              }
               const res = await fetch('/api/trading', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -277,7 +280,10 @@ const LiveTrading: React.FC = () => {
               }
             }}
             onStopBot={async () => {
-              if (!selectedAccountId) return;
+              if (!selectedAccountId) {
+                alert('Please select an account first');
+                return;
+              }
               const res = await fetch('/api/trading', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -286,6 +292,30 @@ const LiveTrading: React.FC = () => {
               if (!res.ok) {
                 const err = await res.json().catch(() => ({}));
                 throw new Error(err.error || 'Failed to stop bot');
+              }
+            }}
+            onViewLogs={async () => {
+              if (!selectedAccountId) {
+                alert('Please select an account first');
+                return;
+              }
+              try {
+                const res = await fetch(`/api/trading?account_id=${selectedAccountId}`);
+                if (res.ok) {
+                  const data = await res.json();
+                  const logs = [
+                    `Bot Status: ${data.is_running ? 'RUNNING' : 'STOPPED'}`,
+                    `Always On: ${data.always_on ? 'YES' : 'NO'}`,
+                    `Last Heartbeat: ${data.last_heartbeat || 'Never'}`,
+                    `Last Error: ${data.last_error || 'None'}`,
+                    `Updated: ${data.updated_at || 'Never'}`,
+                  ].join('\n');
+                  alert(logs);
+                } else {
+                  alert('Failed to fetch bot logs');
+                }
+              } catch (error) {
+                alert('Error fetching bot logs: ' + (error instanceof Error ? error.message : 'Unknown error'));
               }
             }}
           />
