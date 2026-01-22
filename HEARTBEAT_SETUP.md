@@ -16,7 +16,7 @@ You need the `bot_state` table in your **Neon** database.
 ```sql
 CREATE TABLE IF NOT EXISTS bot_state (
     id SERIAL PRIMARY KEY,
-    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    account_id BIGINT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     is_running BOOLEAN DEFAULT FALSE,
     always_on BOOLEAN DEFAULT FALSE,
     last_heartbeat TIMESTAMPTZ,

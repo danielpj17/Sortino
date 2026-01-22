@@ -1,4 +1,5 @@
 import { getPool } from '../db.js';
+import { safeLogError } from '../safeLog.js';
 
 export default async function handler(req, res) {
   // Enable CORS
@@ -45,8 +46,7 @@ export default async function handler(req, res) {
     const result = await pool.query(query, params);
     res.status(200).json(result.rows || []);
   } catch (err) {
-    console.error('Database error:', err);
-    // Return empty array instead of error object
+    safeLogError('Database error:', err);
     res.status(500).json([]);
   }
 }

@@ -76,9 +76,10 @@ CREATE INDEX idx_model_versions_created_at ON model_versions(created_at DESC);
 CREATE UNIQUE INDEX idx_model_versions_active_unique ON model_versions(is_active) WHERE is_active = TRUE;
 
 -- Bot state table: tracks which accounts have active trading bots (Heartbeat architecture)
+-- account_id is BIGINT to match accounts.id (Neon/Vercel often use BIGSERIAL)
 CREATE TABLE IF NOT EXISTS bot_state (
     id SERIAL PRIMARY KEY,
-    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    account_id BIGINT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     is_running BOOLEAN DEFAULT FALSE,
     always_on BOOLEAN DEFAULT FALSE,
     last_heartbeat TIMESTAMPTZ,

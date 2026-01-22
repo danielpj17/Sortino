@@ -1,9 +1,15 @@
 import express from 'express';
 import cors from 'cors';
-import pg from 'pg';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { getPool } from './api/db.js';
+import botStatusHandler from './api/bot-status.js';
+import marketPricesHandler from './api/market-prices.js';
+import statsTypeHandler from './api/stats/[type].js';
+import tradesTypeHandler from './api/trades/[type].js';
+import statsHandler from './api/stats.js';
+import tradesHandler from './api/trades.js';
 
 dotenv.config();
 
@@ -16,78 +22,42 @@ const port = process.env.PORT || 3001;
 app.use(cors());
 app.use(express.json());
 
-const { Pool } = pg;
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
-});
+// Safe error logging: avoid dumping pg Client refs (causes huge TLS/socket dumps and crashes)
+function safeLogError(prefix, err) {
+  const msg = err?.message ?? String(err);
+  const stack = err?.stack;
+  console.error(prefix, msg);
+  if (stack && stack !== msg) console.error(stack);
+}
 
-// --- NEW: Filtered Stats Endpoint ---
-app.get('/api/stats/:type', async (req, res) => {
-  const { type } = req.params; // 'Paper' or 'Live'
-  try {
-    // Join trades with accounts to filter by type
-    const query = `
-      SELECT 
-        SUM(t.pnl) as total_pnl, 
-        COUNT(*) as total_trades,
-        SUM(CASE WHEN t.pnl > 0 THEN 1 ELSE 0 END) as wins
-      FROM trades t
-      JOIN accounts a ON t.account_id = a.id
-      WHERE a.type = $1
-    `;
-    const result = await pool.query(query, [type]);
-    const row = result.rows[0];
+getPool(); // Initialize pool and attach error handler (db.js)
 
-    const totalTrades = parseInt(row.total_trades || 0);
-    const wins = parseInt(row.wins || 0);
-    
-    res.json({
-      totalPnL: parseFloat(row.total_pnl || 0),
-      winRate: totalTrades > 0 ? ((wins / totalTrades) * 100).toFixed(1) : 0,
-      totalTrades: totalTrades
+function wrap(handler) {
+  return (req, res, next) => {
+    Promise.resolve(handler(req, res)).catch((err) => {
+      safeLogError('[api]', err);
+      if (!res.headersSent) res.status(500).json({ error: 'Internal Server Error' });
+      next(err);
     });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Database Error' });
-  }
-});
+  };
+}
 
-// --- NEW: Filtered Trades Endpoint ---
-app.get('/api/trades/:type', async (req, res) => {
-  const { type } = req.params;
-  try {
-    const result = await pool.query(`
-      SELECT t.*, a.name as account_name 
-      FROM trades t 
-      JOIN accounts a ON t.account_id = a.id 
-      WHERE a.type = $1 
-      ORDER BY t.timestamp DESC 
-      LIMIT 100
-    `, [type]);
-    res.json(result.rows);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Internal Server Error' });
-  }
-});
+// Mount Vercel-style API handlers for local dev (proxy matches /api/*)
+app.get('/api/bot-status', wrap(botStatusHandler));
+app.post('/api/bot-status', wrap(botStatusHandler));
+app.get('/api/market-prices', wrap(marketPricesHandler));
 
-// Global trades endpoint (all trades)
-app.get('/api/trades', async (req, res) => {
-  try {
-    const result = await pool.query(`
-      SELECT t.*, a.name as account_name 
-      FROM trades t 
-      JOIN accounts a ON t.account_id = a.id 
-      ORDER BY t.timestamp DESC 
-      LIMIT 100
-    `);
-    res.json(result.rows);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Internal Server Error' });
-  }
+app.get('/api/stats/:type', (req, res, next) => {
+  req.query = { ...req.query, type: req.params.type };
+  return wrap(statsTypeHandler)(req, res, next);
 });
+app.get('/api/stats', wrap(statsHandler));
+
+app.get('/api/trades/:type', (req, res, next) => {
+  req.query = { ...req.query, type: req.params.type };
+  return wrap(tradesTypeHandler)(req, res, next);
+});
+app.get('/api/trades', wrap(tradesHandler));
 
 // Serve static files from the Vite build in production
 if (process.env.NODE_ENV === 'production') {

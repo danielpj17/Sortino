@@ -1,4 +1,5 @@
 import { getPool } from './db.js';
+import { safeLogError } from './safeLog.js';
 
 // Simple in-memory cache (30 seconds TTL)
 const priceCache = new Map();
@@ -101,7 +102,7 @@ export default async function handler(req, res) {
             }
           }
         } catch (err) {
-          console.error(`Error fetching price for ${ticker}:`, err);
+          safeLogError(`Error fetching price for ${ticker}:`, err);
           // Use cached price if available, otherwise skip
           const oldCache = priceCache.get(ticker);
           if (oldCache) {
@@ -110,7 +111,7 @@ export default async function handler(req, res) {
         }
       }
     } catch (err) {
-      console.error('Error fetching market prices:', err);
+      safeLogError('Error fetching market prices:', err);
       // Return cached prices if available
       return res.status(200).json(cached);
     }
@@ -119,7 +120,7 @@ export default async function handler(req, res) {
     const result = { ...cached, ...prices };
     res.status(200).json(result);
   } catch (err) {
-    console.error('Database error:', err);
+    safeLogError('Database error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 }

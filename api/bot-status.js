@@ -1,4 +1,5 @@
 import { getPool } from './db.js';
+import { safeLogError } from './safeLog.js';
 
 export default async function handler(req, res) {
   // Enable CORS
@@ -109,8 +110,8 @@ export default async function handler(req, res) {
         api_status: 'CONNECTED' // Could check API status here if needed
       });
     } catch (err) {
-      console.error('Database error (POST):', err);
-      res.status(500).json({ error: 'Internal server error', details: err.message });
+      safeLogError('Database error (POST):', err);
+      res.status(500).json({ error: 'Internal server error', details: err?.message });
     }
     return;
   }
@@ -234,7 +235,7 @@ export default async function handler(req, res) {
       api_status: apiStatus
     });
   } catch (err) {
-    console.error('Database error (GET):', err);
-    res.status(500).json({ error: 'Internal server error', details: err.message });
+    safeLogError('Database error (GET):', err);
+    res.status(500).json({ error: 'Internal server error', details: err?.message });
   }
 }

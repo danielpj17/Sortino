@@ -1,7 +1,8 @@
 import pg from 'pg';
+import { safeLogError } from './safeLog.js';
+
 const { Pool } = pg;
 
-// Create a single connection pool (reused across serverless functions)
 let pool = null;
 
 export function getPool() {
@@ -10,6 +11,7 @@ export function getPool() {
       connectionString: process.env.DATABASE_URL,
       ssl: { rejectUnauthorized: false },
     });
+    pool.on('error', (err) => safeLogError('[pool]', err));
   }
   return pool;
 }
