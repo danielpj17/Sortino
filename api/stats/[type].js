@@ -63,10 +63,28 @@ export default async function handler(req, res) {
     if (includeEquity === 'true') {
       const startingCapital = type === 'Paper' ? 100000 : 10000;
       
-      // Determine time interval based on range
-      let timeInterval = 'hour'; // Default for 1D
+      // Calculate time range boundaries
+      const now = new Date();
+      let startTime = new Date();
+      
       if (range === '1D') {
-        timeInterval = 'hour';
+        startTime = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      } else if (range === '1W') {
+        startTime = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      } else if (range === '1M') {
+        startTime = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      } else if (range === '1Y') {
+        startTime = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+      } else if (range === 'YTD') {
+        startTime = new Date(now.getFullYear(), 0, 1);
+      }
+      
+      // For 1D view, get all individual trades (not bucketed) to show continuous changes
+      // For other ranges, use time buckets
+      let timeInterval = null;
+      if (range === '1D') {
+        // Don't bucket for 1D - we want individual trade points
+        timeInterval = null;
       } else if (range === '1W' || range === '1M') {
         timeInterval = 'day';
       } else if (range === '1Y' || range === 'YTD') {
@@ -77,18 +95,24 @@ export default async function handler(req, res) {
       let equityQuery = `
         SELECT 
           t.timestamp,
-          t.pnl,
-          DATE_TRUNC('${timeInterval}', t.timestamp) as time_bucket
-        FROM trades t
-        JOIN accounts a ON t.account_id = a.id
-        WHERE a.type = $1
+          t.pnl
       `;
       
-      const equityParams = [type];
+      if (timeInterval) {
+        equityQuery += `, DATE_TRUNC('${timeInterval}', t.timestamp) as time_bucket`;
+      }
+      
+      equityQuery += `
+        FROM trades t
+        JOIN accounts a ON t.account_id = a.id
+        WHERE a.type = $1 AND t.timestamp >= $2
+      `;
+      
+      const equityParams = [type, startTime.toISOString()];
       
       // Add account_id filter if provided
       if (account_id) {
-        equityQuery += ` AND t.account_id = $2`;
+        equityQuery += ` AND t.account_id = $3`;
         equityParams.push(account_id);
       }
       
@@ -96,61 +120,128 @@ export default async function handler(req, res) {
       
       const equityResult = await pool.query(equityQuery, equityParams);
       
-      // Calculate cumulative PnL grouped by time bucket
-      const bucketMap = new Map();
+      // Build data points with cumulative PnL
+      const tradePoints = [];
       let cumulativePnL = 0;
       
-      for (const equityRow of equityResult.rows) {
-        cumulativePnL += parseFloat(equityRow.pnl || 0);
-        const bucketKey = new Date(equityRow.time_bucket).toISOString();
-        
-        bucketMap.set(bucketKey, {
-          time: bucketKey,
-          cumulativePnL: cumulativePnL
-        });
-      }
-      
-      // Convert map to array and sort by time
-      const dataPoints = Array.from(bucketMap.values()).sort((a, b) => 
-        new Date(a.time).getTime() - new Date(b.time).getTime()
-      );
-      
-      // Format data based on range
-      const formattedData = dataPoints.map(point => {
-        const date = new Date(point.time);
-        let timeLabel = '';
-        
-        if (range === '1D') {
-          timeLabel = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
-        } else if (range === '1W') {
-          timeLabel = date.toLocaleDateString('en-US', { weekday: 'short' });
-        } else if (range === '1M') {
-          timeLabel = date.toLocaleDateString('en-US', { day: '2-digit', month: 'short' });
-        } else if (range === '1Y') {
-          timeLabel = date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
-        } else if (range === 'YTD') {
-          timeLabel = date.toLocaleDateString('en-US', { month: 'short' });
-        } else {
-          timeLabel = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+      if (range === '1D') {
+        // For 1D: Use individual trade timestamps for precise points
+        for (const row of equityResult.rows) {
+          cumulativePnL += parseFloat(row.pnl || 0);
+          tradePoints.push({
+            time: new Date(row.timestamp).toISOString(),
+            cumulativePnL: cumulativePnL
+          });
+        }
+      } else {
+        // For other ranges: Group by time bucket
+        const bucketMap = new Map();
+        for (const row of equityResult.rows) {
+          cumulativePnL += parseFloat(row.pnl || 0);
+          const bucketKey = new Date(row.time_bucket).toISOString();
+          
+          // Keep the latest cumulative PnL for each bucket
+          bucketMap.set(bucketKey, {
+            time: bucketKey,
+            cumulativePnL: cumulativePnL
+          });
         }
         
-        const equity = startingCapital + point.cumulativePnL;
-        return {
-          time: timeLabel,
-          value: Math.round(equity)
-        };
+        tradePoints.push(...Array.from(bucketMap.values()));
+        tradePoints.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+      }
+      
+      // Build the final data array
+      const formattedData = [];
+      
+      // Add starting point
+      formattedData.push({
+        time: startTime.toISOString(),
+        value: startingCapital
       });
       
-      // If no data, return at least current equity
-      if (formattedData.length === 0) {
+      // Add trade points
+      for (const point of tradePoints) {
+        const equity = startingCapital + point.cumulativePnL;
         formattedData.push({
-          time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }),
-          value: startingCapital + response.totalPnL
+          time: point.time,
+          value: Math.round(equity)
         });
       }
       
-      response.equityData = formattedData;
-      response.currentEquity = Math.round(startingCapital + response.totalPnL);
+      // For 1D view, add intermediate hourly points to show progression
+      if (range === '1D' && formattedData.length > 1) {
+        const hourlyPoints = [];
+        const start = new Date(startTime);
+        const end = new Date(now);
+        
+        // Generate hourly points
+        let currentHour = new Date(start);
+        currentHour.setMinutes(0, 0, 0); // Round to start of hour
+        
+        while (currentHour <= end) {
+          // Find the last trade point before this hour
+          let equityAtHour = startingCapital;
+          for (let i = formattedData.length - 1; i >= 0; i--) {
+            const pointTime = new Date(formattedData[i].time);
+            if (pointTime <= currentHour) {
+              equityAtHour = formattedData[i].value;
+              break;
+            }
+          }
+          
+          hourlyPoints.push({
+            time: currentHour.toISOString(),
+            value: equityAtHour
+          });
+          
+          // Move to next hour
+          currentHour = new Date(currentHour.getTime() + 60 * 60 * 1000);
+        }
+        
+        // Merge hourly points with trade points, removing duplicates
+        const allPoints = [...formattedData];
+        for (const hourlyPoint of hourlyPoints) {
+          const exists = allPoints.some(p => {
+            const pTime = new Date(p.time);
+            const hTime = new Date(hourlyPoint.time);
+            return Math.abs(pTime.getTime() - hTime.getTime()) < 5 * 60 * 1000; // Within 5 minutes
+          });
+          
+          if (!exists) {
+            allPoints.push(hourlyPoint);
+          }
+        }
+        
+        // Sort by time and update formattedData
+        allPoints.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+        formattedData.length = 0;
+        formattedData.push(...allPoints);
+      }
+      
+      // Always add current point
+      const currentEquity = Math.round(startingCapital + response.totalPnL);
+      formattedData.push({
+        time: now.toISOString(),
+        value: currentEquity
+      });
+      
+      // Remove duplicates (same time)
+      const uniqueData = [];
+      const seenTimes = new Set();
+      for (const point of formattedData) {
+        const timeKey = new Date(point.time).toISOString();
+        if (!seenTimes.has(timeKey)) {
+          seenTimes.add(timeKey);
+          uniqueData.push(point);
+        }
+      }
+      
+      // Sort final data
+      uniqueData.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+      
+      response.equityData = uniqueData;
+      response.currentEquity = currentEquity;
       response.startingEquity = startingCapital;
     }
     

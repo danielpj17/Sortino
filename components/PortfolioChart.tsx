@@ -7,7 +7,8 @@ import {
   YAxis, 
   CartesianGrid, 
   Tooltip, 
-  ResponsiveContainer 
+  ResponsiveContainer,
+  ReferenceLine
 } from 'recharts';
 import { TrendingUp, TrendingDown } from 'lucide-react';
 
@@ -49,16 +50,53 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({ type = 'Paper', account
     return () => clearInterval(interval);
   }, [type, accountId, range]);
 
+  // Format chart data with local timezone
+  const formattedChartData = useMemo(() => {
+    if (chartData.length === 0) return [];
+    
+    return chartData.map((point: any) => {
+      const date = new Date(point.time);
+      let timeLabel = '';
+      
+      if (range === '1D') {
+        // For 1D, show time in 12-hour format with AM/PM like stock charts
+        const hours = date.getHours();
+        const minutes = date.getMinutes();
+        const ampm = hours >= 12 ? 'PM' : 'AM';
+        const displayHours = hours % 12 || 12;
+        timeLabel = minutes === 0 
+          ? `${displayHours}:00 ${ampm}` 
+          : `${displayHours}:${minutes.toString().padStart(2, '0')} ${ampm}`;
+      } else if (range === '1W') {
+        timeLabel = date.toLocaleDateString('en-US', { weekday: 'short' });
+      } else if (range === '1M') {
+        timeLabel = date.toLocaleDateString('en-US', { day: '2-digit', month: 'short' });
+      } else if (range === '1Y') {
+        timeLabel = date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+      } else if (range === 'YTD') {
+        timeLabel = date.toLocaleDateString('en-US', { month: 'short' });
+      } else {
+        timeLabel = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+      }
+      
+      return {
+        time: timeLabel,
+        value: point.value,
+        timestamp: point.time // Keep original timestamp for sorting
+      };
+    }).sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  }, [chartData, range]);
+
   const stats = useMemo(() => {
-    if (chartData.length === 0) {
+    if (formattedChartData.length === 0) {
       return { diff: 0, percent: 0 };
     }
-    const startValue = chartData[0].value;
-    const endValue = chartData[chartData.length - 1].value;
+    const startValue = formattedChartData[0].value;
+    const endValue = formattedChartData[formattedChartData.length - 1].value;
     const diff = endValue - startValue;
     const percent = startValue > 0 ? (diff / startValue) * 100 : 0;
     return { diff, percent };
-  }, [chartData]);
+  }, [formattedChartData]);
 
   return (
     <div className="space-y-4">
@@ -100,13 +138,13 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({ type = 'Paper', account
           <div className="h-full flex items-center justify-center text-zinc-500 text-sm">
             Loading chart data...
           </div>
-        ) : chartData.length === 0 ? (
+        ) : formattedChartData.length === 0 ? (
           <div className="h-full flex items-center justify-center text-zinc-500 text-sm">
             No data available
           </div>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={chartData}>
+            <AreaChart data={formattedChartData}>
             <defs>
               <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor="#86c7f3" stopOpacity={0.15}/>
@@ -120,14 +158,29 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({ type = 'Paper', account
               tickLine={false} 
               tick={{ fill: '#737373', fontSize: 10, fontWeight: 600 }} 
               dy={10}
+              interval={range === '1D' ? 'preserveStartEnd' : 'auto'}
             />
             <YAxis 
               axisLine={false} 
               tickLine={false} 
               tick={{ fill: '#737373', fontSize: 10, fontWeight: 600 }} 
-              tickFormatter={(val) => `$${(val/1000).toFixed(1)}k`}
+              tickFormatter={(val) => {
+                if (val >= 1000) {
+                  return `$${(val/1000).toFixed(1)}k`;
+                }
+                return `$${val.toLocaleString()}`;
+              }}
               domain={['dataMin - 500', 'dataMax + 500']}
             />
+            {formattedChartData.length > 0 && (
+              <ReferenceLine 
+                y={formattedChartData[0].value} 
+                stroke="#737373" 
+                strokeDasharray="3 3" 
+                strokeOpacity={0.5}
+                label={{ value: `$${formattedChartData[0].value.toLocaleString()}`, position: 'right', fill: '#737373', fontSize: 10 }}
+              />
+            )}
             <Tooltip 
               contentStyle={{ backgroundColor: '#171717', border: '1px solid #262626', borderRadius: '12px', color: '#f5f5f5', fontSize: '11px', fontWeight: 'bold' }}
               itemStyle={{ color: '#86c7f3' }}
