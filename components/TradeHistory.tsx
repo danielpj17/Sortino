@@ -182,8 +182,8 @@ const TradeHistory: React.FC = () => {
                     </td>
                     <td className="px-6 py-5 text-sm font-bold text-zinc-200">${Number(trade.price).toFixed(2)}</td>
                     <td className="px-6 py-5 text-sm font-semibold text-zinc-300 text-center">{trade.quantity}</td>
-                    <td className={`px-6 py-5 text-sm font-black ${trade.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                      {trade.pnl > 0 ? '+' : ''}{Number(trade.pnl).toFixed(2)}
+                    <td className={`px-6 py-5 text-sm font-black ${Number(trade.pnl) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                      {Number(trade.pnl) > 0 ? '+' : ''}{Number(trade.pnl).toFixed(2)}
                     </td>
                     <td className="px-6 py-5 text-right">
                       <div className="flex flex-col items-end">

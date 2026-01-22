@@ -36,10 +36,10 @@ const RecentTrades: React.FC<Props> = ({ trades }) => {
             </div>
           </div>
           <div className="text-right">
-            <p className="font-bold text-sm text-zinc-100">${trade.price.toFixed(2)}</p>
+            <p className="font-bold text-sm text-zinc-100">${Number(trade.price).toFixed(2)}</p>
             {/* PnL signs remain green/red as requested */}
-            <p className={`text-[10px] font-bold tracking-widest ${trade.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-              {trade.pnl === 0 ? '--' : `${trade.pnl > 0 ? '+' : ''}${trade.pnl.toFixed(2)}`}
+            <p className={`text-[10px] font-bold tracking-widest ${Number(trade.pnl) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+              {Number(trade.pnl) === 0 ? '--' : `${Number(trade.pnl) > 0 ? '+' : ''}${Number(trade.pnl).toFixed(2)}`}
             </p>
           </div>
         </div>
