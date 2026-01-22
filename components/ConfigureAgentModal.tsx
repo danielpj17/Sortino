@@ -118,7 +118,7 @@ const ConfigureAgentModal: React.FC<ConfigureAgentModalProps> = ({
     >
       <div
         ref={modalRef}
-        className="bg-[#121212] border border-zinc-800 w-full max-w-md rounded-2xl overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200"
+        className="bg-[#181818] border border-zinc-800 w-full max-w-md rounded-2xl overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}

@@ -38,21 +38,59 @@ const LiveTrading: React.FC = () => {
   const [marketPrices, setMarketPrices] = useState<Record<string, number>>({});
   const accountDropdownRef = useRef<HTMLDivElement>(null);
 
-  // Fetch accounts on mount
+  // Load accounts from localStorage (same as Settings) and listen for changes
   useEffect(() => {
-    const fetchAccounts = async () => {
+    const STORAGE_KEY_LIVE = 'sortino_live_accounts';
+    
+    const loadAccounts = () => {
       try {
-        const res = await fetch('/api/accounts');
-        if (res.ok) {
-          const data = await res.json();
-          const liveAccounts = Array.isArray(data) ? data.filter((a: any) => a.type === 'Live') : [];
-          setAccounts(liveAccounts);
+        const saved = localStorage.getItem(STORAGE_KEY_LIVE);
+        if (saved) {
+          const liveAccounts = JSON.parse(saved);
+          setAccounts(Array.isArray(liveAccounts) ? liveAccounts : []);
+        } else {
+          // Fallback to database API if localStorage is empty (for backward compatibility)
+          const fetchAccounts = async () => {
+            try {
+              const res = await fetch('/api/accounts');
+              if (res.ok) {
+                const data = await res.json();
+                const liveAccounts = Array.isArray(data) ? data.filter((a: any) => a.type === 'Live') : [];
+                setAccounts(liveAccounts);
+              }
+            } catch (error) {
+              console.error("Failed to fetch accounts", error);
+            }
+          };
+          fetchAccounts();
         }
       } catch (error) {
-        console.error("Failed to fetch accounts", error);
+        console.error("Failed to load accounts from localStorage", error);
       }
     };
-    fetchAccounts();
+
+    // Load accounts on mount
+    loadAccounts();
+
+    // Listen for storage changes (when Settings updates accounts in another tab)
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === STORAGE_KEY_LIVE) {
+        loadAccounts();
+      }
+    };
+
+    // Listen for focus events (when user switches back to this tab)
+    const handleFocus = () => {
+      loadAccounts();
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('focus', handleFocus);
+    };
   }, []);
 
   // Close dropdown on outside click
@@ -230,7 +268,7 @@ const LiveTrading: React.FC = () => {
           <label className="text-[10px] font-black uppercase tracking-widest text-zinc-600 mb-1.5 block px-1">Account</label>
           <button 
             onClick={() => setIsAccountDropdownOpen(!isAccountDropdownOpen)}
-            className={`flex items-center gap-3 bg-[#121212] border transition-all px-4 py-2.5 rounded-xl w-[200px] text-left group ${isAccountDropdownOpen ? 'border-[#86c7f3] ring-2 ring-[#86c7f3]/10' : 'border-zinc-800 hover:border-zinc-700'}`}
+            className={`flex items-center gap-3 bg-[#181818] border transition-all px-4 py-2.5 rounded-xl w-[200px] text-left group ${isAccountDropdownOpen ? 'border-[#86c7f3] ring-2 ring-[#86c7f3]/10' : 'border-zinc-800 hover:border-zinc-700'}`}
           >
             <div className="p-1.5 bg-rose-500/10 rounded-lg">
               <Activity size={16} className="text-rose-400" />
@@ -245,7 +283,7 @@ const LiveTrading: React.FC = () => {
           </button>
 
           {isAccountDropdownOpen && (
-            <div className="absolute top-full right-0 mt-2 w-full bg-[#121212] border border-zinc-800 rounded-xl shadow-2xl z-50 py-2 animate-in slide-in-from-top-2 duration-200 overflow-hidden">
+            <div className="absolute top-full right-0 mt-2 w-full bg-[#181818] border border-zinc-800 rounded-xl shadow-2xl z-50 py-2 animate-in slide-in-from-top-2 duration-200 overflow-hidden">
               <button
                 onClick={() => { setSelectedAccountId(null); setIsAccountDropdownOpen(false); }}
                 className={`w-full px-4 py-3 flex items-center gap-3 transition-colors text-left hover:bg-zinc-800/50 ${!selectedAccountId ? 'bg-zinc-800/30' : ''}`}
@@ -337,12 +375,12 @@ const LiveTrading: React.FC = () => {
             }}
           />
         </div>
-        <div className="lg:col-span-2 bg-[#121212] rounded-2xl p-6 border border-zinc-800">
+        <div className="lg:col-span-2 bg-[#181818] rounded-2xl p-6 border border-zinc-800">
           <PortfolioChart type="Live" accountId={selectedAccountId} currentEquity={portfolioEquity} />
         </div>
       </div>
 
-      <div className="bg-[#121212] border border-zinc-800 rounded-2xl overflow-hidden">
+      <div className="bg-[#181818] border border-zinc-800 rounded-2xl overflow-hidden">
         <div className="px-6 py-4 border-b border-zinc-800 flex items-center justify-between bg-[#171717]/50">
           <div className="flex items-center gap-3">
             <Activity size={18} className="text-rose-400" />

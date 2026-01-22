@@ -106,7 +106,7 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({ type = 'Paper', account
           <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Growth Curve</p>
         </div>
         <div className="flex flex-col items-end gap-2">
-          <div className="flex gap-1 bg-zinc-900/50 p-1 rounded-lg border border-zinc-800">
+          <div className="flex gap-1 bg-zinc-900/60 p-1 rounded-lg border border-zinc-800">
             {(['1D', '1W', '1M', '1Y', 'YTD'] as TimeRange[]).map((t) => (
               <button
                 key={t}

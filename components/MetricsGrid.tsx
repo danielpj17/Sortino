@@ -80,7 +80,7 @@ const MetricCard: React.FC<MetricCardProps> = ({ title, value, subValue, icon, c
   };
 
   return (
-    <div className="bg-[#121212] border border-zinc-800/80 p-5 rounded-xl shadow-sm relative overflow-hidden group hover:border-zinc-700 transition-colors">
+    <div className="bg-[#181818] border border-zinc-800/80 p-5 rounded-xl shadow-sm relative overflow-hidden group hover:border-zinc-700 transition-colors">
       <div className="flex justify-between items-start mb-3">
         <div className={`p-2 rounded-lg ${colorMap[color]}`}>
           {icon}

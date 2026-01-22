@@ -126,7 +126,7 @@ const TradeHistory: React.FC = () => {
             <label className="text-[10px] font-black uppercase tracking-widest text-zinc-600 mb-1.5 block px-1">Type</label>
             <button 
               onClick={() => setIsTypeDropdownOpen(!isTypeDropdownOpen)}
-              className={`flex items-center gap-3 bg-[#121212] border transition-all px-4 py-2.5 rounded-xl w-[160px] text-left group ${isTypeDropdownOpen ? 'border-[#86c7f3] ring-2 ring-[#86c7f3]/10' : 'border-zinc-800 hover:border-zinc-700'}`}
+              className={`flex items-center gap-3 bg-[#181818] border transition-all px-4 py-2.5 rounded-xl w-[160px] text-left group ${isTypeDropdownOpen ? 'border-[#86c7f3] ring-2 ring-[#86c7f3]/10' : 'border-zinc-800 hover:border-zinc-700'}`}
             >
               <div className="p-1.5 bg-[#86c7f3]/10 rounded-lg">
                 {filterType === 'Live' ? <Activity size={16} className="text-[#86c7f3]" /> : <ShieldCheck size={16} className="text-[#86c7f3]" />}
@@ -139,7 +139,7 @@ const TradeHistory: React.FC = () => {
             </button>
 
             {isTypeDropdownOpen && (
-              <div className="absolute top-full right-0 mt-2 w-full bg-[#121212] border border-zinc-800 rounded-xl shadow-2xl z-50 py-2 animate-in slide-in-from-top-2 duration-200 overflow-hidden">
+              <div className="absolute top-full right-0 mt-2 w-full bg-[#181818] border border-zinc-800 rounded-xl shadow-2xl z-50 py-2 animate-in slide-in-from-top-2 duration-200 overflow-hidden">
                 {['All', 'Paper', 'Live'].map((type) => (
                   <button
                     key={type}
@@ -173,7 +173,7 @@ const TradeHistory: React.FC = () => {
             </button>
 
             {isAccountDropdownOpen && (
-              <div className="absolute top-full right-0 mt-2 w-full bg-[#121212] border border-zinc-800 rounded-xl shadow-2xl z-50 py-2 animate-in slide-in-from-top-2 duration-200 overflow-hidden max-h-[300px] overflow-y-auto">
+              <div className="absolute top-full right-0 mt-2 w-full bg-[#181818] border border-zinc-800 rounded-xl shadow-2xl z-50 py-2 animate-in slide-in-from-top-2 duration-200 overflow-hidden max-h-[300px] overflow-y-auto">
                 <button
                   onClick={() => { setSelectedAccountId(null); setIsAccountDropdownOpen(false); }}
                   className={`w-full px-4 py-3 flex items-center gap-3 transition-colors text-left hover:bg-zinc-800/50 ${!selectedAccountId ? 'bg-zinc-800/30' : ''}`}
@@ -209,12 +209,12 @@ const TradeHistory: React.FC = () => {
             placeholder="Search ticker, ID, or strategy..." 
             value={searchQuery} 
             onChange={(e) => setSearchQuery(e.target.value)} 
-            className="w-full bg-[#121212] border border-zinc-800 rounded-xl py-2.5 pl-11 pr-4 text-sm text-zinc-200 focus:outline-none focus:border-[#86c7f3] transition-all placeholder:text-zinc-600" 
+            className="w-full bg-[#181818] border border-zinc-800 rounded-xl py-2.5 pl-11 pr-4 text-sm text-zinc-200 focus:outline-none focus:border-[#86c7f3] transition-all placeholder:text-zinc-600" 
           />
         </div>
       </div>
 
-      <div className="bg-[#121212] border border-zinc-800 rounded-2xl overflow-hidden shadow-sm">
+      <div className="bg-[#181818] border border-zinc-800 rounded-2xl overflow-hidden shadow-sm">
         <div className="px-6 py-4 border-b border-zinc-800 flex items-center justify-between bg-[#171717]/50">
           <div className="flex items-center gap-3">
             <Clock size={18} className="text-[#86c7f3]" />

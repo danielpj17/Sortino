@@ -85,12 +85,12 @@ const Dashboard: React.FC = () => {
       })()}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 bg-[#121212] rounded-2xl p-6 border border-zinc-800 shadow-sm">
+        <div className="lg:col-span-2 bg-[#181818] rounded-2xl p-6 border border-zinc-800 shadow-sm">
           <h2 className="text-lg font-semibold text-zinc-200 mb-4">Portfolio Performance</h2>
           <PortfolioChart type="Live" currentEquity={10000 + stats.totalPnL} />
         </div>
 
-        <div className="bg-[#121212] rounded-2xl p-6 border border-zinc-800 shadow-sm">
+        <div className="bg-[#181818] rounded-2xl p-6 border border-zinc-800 shadow-sm">
           <h2 className="text-lg font-semibold text-zinc-200 mb-6">Recent Activity</h2>
           {/* Pass the real DB trades here */}
           <RecentTrades trades={trades} />

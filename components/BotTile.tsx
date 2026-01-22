@@ -86,7 +86,7 @@ const BotTile: React.FC<BotTileProps> = ({ accountId, onStartBot, onStopBot, onV
   };
 
   return (
-    <div className="bg-[#121212] border border-zinc-800 rounded-2xl p-6 shadow-sm">
+    <div className="bg-[#181818] border border-zinc-800 rounded-2xl p-6 shadow-sm">
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-base font-bold text-zinc-200 uppercase tracking-tight">BOT STATUS</h2>
         <button

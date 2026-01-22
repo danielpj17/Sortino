@@ -115,7 +115,7 @@ const Settings: React.FC = () => {
         />
 
         {/* Global API Limits / Info */}
-        <div className="bg-[#121212] border border-zinc-800 rounded-2xl p-6 shadow-sm flex items-start gap-4">
+        <div className="bg-[#181818] border border-zinc-800 rounded-2xl p-6 shadow-sm flex items-start gap-4">
           <div className="p-3 bg-zinc-800/50 rounded-xl text-zinc-400">
             <Info size={24} />
           </div>
@@ -131,7 +131,7 @@ const Settings: React.FC = () => {
       {/* Add Account Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-[#121212] border border-zinc-800 w-full max-w-md rounded-2xl overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200">
+          <div className="bg-[#181818] border border-zinc-800 w-full max-w-md rounded-2xl overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200">
             <div className="bg-[#171717] px-6 py-4 flex items-center justify-between border-b border-zinc-800">
               <div className="flex items-center gap-3">
                 <div className={`p-1.5 rounded-lg ${modalType === 'Paper' ? 'bg-sky-500/10 text-sky-400' : 'bg-rose-500/10 text-rose-400'}`}>
@@ -219,7 +219,7 @@ interface SectionProps {
 
 const AccountSection: React.FC<SectionProps> = ({ title, description, accounts, type, onAdd, onDelete, icon }) => {
   return (
-    <div className="bg-[#121212] border border-zinc-800 rounded-2xl overflow-hidden shadow-sm">
+    <div className="bg-[#181818] border border-zinc-800 rounded-2xl overflow-hidden shadow-sm">
       <div className="px-6 py-5 border-b border-zinc-800 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-[#171717]/30">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
@@ -251,7 +251,7 @@ const AccountSection: React.FC<SectionProps> = ({ title, description, accounts, 
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {accounts.map(acc => (
-              <div key={acc.id} className="group bg-zinc-900/40 border border-zinc-800/80 rounded-xl p-5 hover:border-zinc-700 transition-all">
+              <div key={acc.id} className="group bg-zinc-900/50 border border-zinc-800/80 rounded-xl p-5 hover:border-zinc-700 transition-all">
                 <div className="flex justify-between items-start mb-4">
                   <div className="space-y-1">
                     <h4 className="text-sm font-bold text-zinc-100">{acc.name}</h4>
