@@ -1,14 +1,41 @@
 import React, { useState, useEffect, useRef } from 'react';
 import MetricsGrid from './MetricsGrid';
 import PortfolioChart from './PortfolioChart';
+import BotTile from './BotTile';
 import { Activity, Clock, ChevronDown } from 'lucide-react';
 
+interface Trade {
+  id: number;
+  timestamp: string;
+  ticker: string;
+  action: 'BUY' | 'SELL';
+  price: number;
+  quantity: number;
+  strategy: string;
+  pnl: number;
+  account_id: string;
+  account_name?: string;
+  company_name?: string;
+  sell_trade_id?: number;
+}
+
+interface Position {
+  buyTrade: Trade;
+  sellTrade?: Trade;
+  marketPrice?: number;
+  positionValue?: number;
+  pnl?: number;
+  holdDuration?: string;
+}
+
 const LiveTrading: React.FC = () => {
-  const [trades, setTrades] = useState<any[]>([]);
+  const [trades, setTrades] = useState<Trade[]>([]);
   const [stats, setStats] = useState({ totalPnL: 0, winRate: 0, totalTrades: 0 });
   const [accounts, setAccounts] = useState<any[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
   const [isAccountDropdownOpen, setIsAccountDropdownOpen] = useState(false);
+  const [viewMode, setViewMode] = useState<'POSITIONS' | 'COMPLETED'>('POSITIONS');
+  const [marketPrices, setMarketPrices] = useState<Record<string, number>>({});
   const accountDropdownRef = useRef<HTMLDivElement>(null);
 
   // Fetch accounts on mount
@@ -39,10 +66,10 @@ const LiveTrading: React.FC = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // Fetch trades and stats
   useEffect(() => {
     const fetchData = async () => {
       try {
-        // Build URL with optional account_id
         const tradesUrl = selectedAccountId 
           ? `/api/trades/Live?account_id=${selectedAccountId}`
           : '/api/trades/Live';
@@ -76,6 +103,101 @@ const LiveTrading: React.FC = () => {
     const interval = setInterval(fetchData, 5000);
     return () => clearInterval(interval);
   }, [selectedAccountId]);
+
+  // Fetch market prices
+  useEffect(() => {
+    const fetchPrices = async () => {
+      if (trades.length === 0) return;
+      
+      const uniqueTickers = [...new Set(trades.map(t => t.ticker))];
+      if (uniqueTickers.length === 0) return;
+
+      try {
+        const tickersParam = uniqueTickers.join(',');
+        const accountParam = selectedAccountId ? `&account_id=${selectedAccountId}` : '';
+        const res = await fetch(`/api/market-prices?tickers=${tickersParam}${accountParam}`);
+        if (res.ok) {
+          const prices = await res.json();
+          setMarketPrices(prices);
+        }
+      } catch (error) {
+        console.error("Failed to fetch market prices", error);
+      }
+    };
+    
+    fetchPrices();
+    const interval = setInterval(fetchPrices, 30000);
+    return () => clearInterval(interval);
+  }, [trades, selectedAccountId]);
+
+  // Match trades into positions
+  const matchTrades = (): Position[] => {
+    const positions: Position[] = [];
+    const buyTrades: Trade[] = [];
+    
+    const sortedTrades = [...trades].sort((a, b) => 
+      new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    );
+
+    for (const trade of sortedTrades) {
+      if (trade.action === 'BUY') {
+        buyTrades.push(trade);
+      } else if (trade.action === 'SELL') {
+        const matchingBuy = buyTrades.find(b => 
+          b.ticker === trade.ticker && 
+          b.account_id === trade.account_id &&
+          !positions.some(p => p.buyTrade.id === b.id)
+        );
+        
+        if (matchingBuy) {
+          // Use stored PNL from SELL trade if available and non-zero, otherwise calculate
+          const pnl = (trade.pnl && trade.pnl !== 0) ? trade.pnl : (trade.price - matchingBuy.price) * matchingBuy.quantity;
+          positions.push({
+            buyTrade: matchingBuy,
+            sellTrade: trade,
+            pnl
+          });
+        }
+      }
+    }
+
+    for (const buyTrade of buyTrades) {
+      if (!positions.some(p => p.buyTrade.id === buyTrade.id)) {
+        const marketPrice = marketPrices[buyTrade.ticker];
+        positions.push({
+          buyTrade: buyTrade,
+          marketPrice,
+          positionValue: marketPrice ? marketPrice * buyTrade.quantity : undefined
+        });
+      }
+    }
+
+    return positions;
+  };
+
+  const formatTime = (timestamp: string) => {
+    const date = new Date(timestamp);
+    return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+  };
+
+  const formatHoldDuration = (buyTime: string, sellTime?: string) => {
+    if (!sellTime) return '--';
+    const buy = new Date(buyTime);
+    const sell = new Date(sellTime);
+    const diffMs = sell.getTime() - buy.getTime();
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffHours / 24);
+    
+    if (diffDays > 0) return `${diffDays}d`;
+    if (diffHours > 0) return `${diffHours}h`;
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    return `${diffMins}m`;
+  };
+
+  const positions = matchTrades();
+  const openPositions = positions.filter(p => !p.sellTrade);
+  const completedTrades = positions.filter(p => p.sellTrade);
+  const displayedPositions = viewMode === 'POSITIONS' ? openPositions : completedTrades;
 
   const selectedAccount = selectedAccountId ? accounts.find(a => a.id === selectedAccountId) : null;
 
@@ -130,8 +252,8 @@ const LiveTrading: React.FC = () => {
 
       <MetricsGrid 
         totalPnL={stats.totalPnL} 
-        portfolioEquity={0} // Live equity requires Alpaca API calls (Future Step)
-        positionValue={0} 
+        portfolioEquity={0}
+        positionValue={openPositions.reduce((sum, p) => sum + (p.positionValue || 0), 0)}
         availableCash={0} 
         winRate={Number(stats.winRate)} 
         totalTrades={stats.totalTrades} 
@@ -139,44 +261,128 @@ const LiveTrading: React.FC = () => {
       />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-3 bg-[#121212] rounded-2xl p-6 border border-zinc-800">
+        <div className="lg:col-span-1">
+          <BotTile accountId={selectedAccountId} />
+        </div>
+        <div className="lg:col-span-2 bg-[#121212] rounded-2xl p-6 border border-zinc-800">
           <PortfolioChart />
         </div>
       </div>
 
       <div className="bg-[#121212] border border-zinc-800 rounded-2xl overflow-hidden">
-        <div className="px-6 py-4 border-b border-zinc-800 flex items-center gap-3 bg-[#171717]/50">
-          <Activity size={18} className="text-rose-400" />
-          <h2 className="text-base font-bold text-zinc-200 uppercase">Live Trade Log</h2>
+        <div className="px-6 py-4 border-b border-zinc-800 flex items-center justify-between bg-[#171717]/50">
+          <div className="flex items-center gap-3">
+            <Activity size={18} className="text-rose-400" />
+            <h2 className="text-base font-bold text-zinc-200 uppercase">TRADE LOG</h2>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setViewMode('POSITIONS')}
+              className={`px-4 py-2 text-xs font-bold uppercase transition-colors ${
+                viewMode === 'POSITIONS' 
+                  ? 'bg-[#86c7f3] text-white' 
+                  : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+              } rounded-lg`}
+            >
+              POSITIONS
+            </button>
+            <button
+              onClick={() => setViewMode('COMPLETED')}
+              className={`px-4 py-2 text-xs font-bold uppercase transition-colors ${
+                viewMode === 'COMPLETED' 
+                  ? 'bg-[#86c7f3] text-white' 
+                  : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+              } rounded-lg`}
+            >
+              COMPLETED
+            </button>
+          </div>
         </div>
         <div className="w-full overflow-x-auto">
-          <table className="w-full text-left text-sm text-zinc-400">
+          <table className="w-full text-left text-sm text-zinc-400 min-w-[1200px]">
             <thead className="bg-[#171717] text-xs font-bold uppercase border-b border-zinc-800">
               <tr>
-                <th className="px-6 py-4">Time</th>
-                <th className="px-6 py-4">Ticker</th>
-                <th className="px-6 py-4">Action</th>
-                <th className="px-6 py-4">Price</th>
-                <th className="px-6 py-4">Account</th>
+                <th className="px-6 py-4">ASSET</th>
+                <th className="px-6 py-4">BUY EVENT</th>
+                <th className="px-6 py-4 text-center">QTY</th>
+                <th className="px-6 py-4">MARKET</th>
+                <th className="px-6 py-4">POSITION VALUE</th>
+                {viewMode === 'COMPLETED' && <th className="px-6 py-4">SELL EVENT</th>}
+                <th className="px-6 py-4">PNL</th>
+                <th className="px-6 py-4">HOLD</th>
+                <th className="px-6 py-4 text-right">ID</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-800/50">
-              {trades.length === 0 ? (
-                <tr><td colSpan={5} className="px-6 py-8 text-center text-zinc-600">No live trades recorded yet.</td></tr>
+              {displayedPositions.length === 0 ? (
+                <tr>
+                  <td colSpan={viewMode === 'COMPLETED' ? 9 : 8} className="px-6 py-8 text-center text-zinc-600">
+                    {viewMode === 'POSITIONS' ? 'No open positions.' : 'No completed trades.'}
+                  </td>
+                </tr>
               ) : (
-                trades.map((t: any) => (
-                  <tr key={t.id} className="hover:bg-zinc-800/20">
-                    <td className="px-6 py-4">{new Date(t.timestamp).toLocaleString()}</td>
-                    <td className="px-6 py-4 font-bold text-white">{t.ticker}</td>
-                    <td className="px-6 py-4">
-                      <span className={`px-2 py-1 rounded text-[10px] font-black uppercase ${t.action === 'BUY' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
-                        {t.action}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4">${Number(t.price).toFixed(2)}</td>
-                    <td className="px-6 py-4 text-xs font-mono">{t.account_name || t.account_id}</td>
-                  </tr>
-                ))
+                displayedPositions.map((pos) => {
+                  const buy = pos.buyTrade;
+                  const sell = pos.sellTrade;
+                  const marketPrice = pos.marketPrice || marketPrices[buy.ticker];
+                  const positionValue = pos.positionValue || (marketPrice ? marketPrice * buy.quantity : undefined);
+                  const pnl = pos.pnl !== undefined ? pos.pnl : (marketPrice ? (marketPrice - buy.price) * buy.quantity : undefined);
+                  
+                  return (
+                    <tr key={buy.id} className="hover:bg-zinc-800/20">
+                      <td className="px-6 py-5">
+                        <div className="flex flex-col">
+                          <span className="font-bold text-zinc-100 text-sm">{buy.ticker}</span>
+                          <span className="text-xs text-zinc-500 font-medium">{buy.company_name || buy.ticker}</span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-5">
+                        <div className="flex flex-col gap-1">
+                          <span className="px-2 py-1 rounded text-[10px] font-black uppercase bg-emerald-500 text-white w-fit">
+                            BUY
+                          </span>
+                          <span className="text-xs text-zinc-400">{formatTime(buy.timestamp)}</span>
+                          <span className="text-xs font-bold text-zinc-200">${Number(buy.price).toFixed(2)}</span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-5 text-center text-sm font-semibold text-zinc-300">{buy.quantity}</td>
+                      <td className="px-6 py-5 text-sm font-bold text-zinc-200">
+                        {marketPrice ? `$${marketPrice.toFixed(2)}` : '--'}
+                      </td>
+                      <td className="px-6 py-5 text-sm font-bold text-[#86c7f3]">
+                        {positionValue ? `$${positionValue.toFixed(2)}` : '--'}
+                      </td>
+                      {viewMode === 'COMPLETED' && (
+                        <td className="px-6 py-5">
+                          {sell ? (
+                            <div className="flex flex-col gap-1">
+                              <span className="px-2 py-1 rounded text-[10px] font-black uppercase bg-rose-500 text-white w-fit">
+                                SELL
+                              </span>
+                              <span className="text-xs text-zinc-400">{formatTime(sell.timestamp)}</span>
+                              <span className="text-xs font-bold text-zinc-200">${Number(sell.price).toFixed(2)}</span>
+                            </div>
+                          ) : (
+                            <span className="text-zinc-600">--</span>
+                          )}
+                        </td>
+                      )}
+                      <td className={`px-6 py-5 text-sm font-black ${
+                        pnl !== undefined 
+                          ? (pnl >= 0 ? 'text-emerald-400' : 'text-rose-400')
+                          : 'text-zinc-600'
+                      }`}>
+                        {pnl !== undefined ? `${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}` : '--'}
+                      </td>
+                      <td className="px-6 py-5 text-sm text-zinc-400">
+                        {formatHoldDuration(buy.timestamp, sell?.timestamp)}
+                      </td>
+                      <td className="px-6 py-5 text-right">
+                        <span className="text-xs font-mono text-zinc-600 font-bold">#{buy.id}</span>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>

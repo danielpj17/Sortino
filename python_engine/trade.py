@@ -131,6 +131,16 @@ def get_position_or_none(api, symbol):
         return None
 
 
+def _get_company_name(ticker):
+    """Fetch company name from yfinance."""
+    try:
+        stock = yf.Ticker(ticker)
+        info = stock.info
+        return info.get('longName') or info.get('shortName') or ticker
+    except Exception:
+        return ticker
+
+
 def run_analysis_cycle(model, conn, accounts):
     """Run one full analysis pass over DOW_30 and execute per-account."""
     for ticker in DOW_30:
@@ -190,9 +200,11 @@ def run_analysis_cycle(model, conn, accounts):
                         if side == "short":
                             close_qty = abs(int(float(pos.qty)))
                             api.submit_order(symbol=ticker, qty=close_qty, side="buy", type="market", time_in_force="gtc")
+                            # Get company name
+                            company_name = _get_company_name(ticker)
                             cur.execute(
-                                "INSERT INTO trades (timestamp, ticker, action, price, quantity, strategy, pnl, account_id) VALUES (NOW(), %s, %s, %s, %s, %s, %s, %s)",
-                                (ticker, "BUY", current_price, close_qty, STRATEGY_NAME, 0.0, acc_id),
+                                "INSERT INTO trades (timestamp, ticker, action, price, quantity, strategy, pnl, account_id, company_name) VALUES (NOW(), %s, %s, %s, %s, %s, %s, %s, %s)",
+                                (ticker, "BUY", current_price, close_qty, STRATEGY_NAME, 0.0, acc_id, company_name),
                             )
                             conn.commit()
                             print(f"    [{acc_id}] Covered short {ticker} x {close_qty}")
@@ -200,9 +212,11 @@ def run_analysis_cycle(model, conn, accounts):
                             print(f"    [{acc_id}] Already long {ticker}, skip")
                     else:
                         api.submit_order(symbol=ticker, qty=qty, side="buy", type="market", time_in_force="gtc")
+                        # Get company name
+                        company_name = _get_company_name(ticker)
                         cur.execute(
-                            "INSERT INTO trades (timestamp, ticker, action, price, quantity, strategy, pnl, account_id) VALUES (NOW(), %s, %s, %s, %s, %s, %s, %s)",
-                            (ticker, "BUY", current_price, qty, STRATEGY_NAME, 0.0, acc_id),
+                            "INSERT INTO trades (timestamp, ticker, action, price, quantity, strategy, pnl, account_id, company_name) VALUES (NOW(), %s, %s, %s, %s, %s, %s, %s, %s)",
+                            (ticker, "BUY", current_price, qty, STRATEGY_NAME, 0.0, acc_id, company_name),
                         )
                         conn.commit()
                         print(f"    [{acc_id}] BUY {ticker} x {qty}")
@@ -214,9 +228,11 @@ def run_analysis_cycle(model, conn, accounts):
                         if side == "long":
                             close_qty = int(float(pos.qty))
                             api.submit_order(symbol=ticker, qty=close_qty, side="sell", type="market", time_in_force="gtc")
+                            # Get company name
+                            company_name = _get_company_name(ticker)
                             cur.execute(
-                                "INSERT INTO trades (timestamp, ticker, action, price, quantity, strategy, pnl, account_id) VALUES (NOW(), %s, %s, %s, %s, %s, %s, %s)",
-                                (ticker, "SELL", current_price, close_qty, STRATEGY_NAME, 0.0, acc_id),
+                                "INSERT INTO trades (timestamp, ticker, action, price, quantity, strategy, pnl, account_id, company_name) VALUES (NOW(), %s, %s, %s, %s, %s, %s, %s, %s)",
+                                (ticker, "SELL", current_price, close_qty, STRATEGY_NAME, 0.0, acc_id, company_name),
                             )
                             conn.commit()
                             print(f"    [{acc_id}] Closed long {ticker} x {close_qty}")
@@ -225,9 +241,11 @@ def run_analysis_cycle(model, conn, accounts):
                     else:
                         if allow_shorting:
                             api.submit_order(symbol=ticker, qty=qty, side="sell", type="market", time_in_force="gtc")
+                            # Get company name
+                            company_name = _get_company_name(ticker)
                             cur.execute(
-                                "INSERT INTO trades (timestamp, ticker, action, price, quantity, strategy, pnl, account_id) VALUES (NOW(), %s, %s, %s, %s, %s, %s, %s)",
-                                (ticker, "SELL", current_price, qty, STRATEGY_NAME, 0.0, acc_id),
+                                "INSERT INTO trades (timestamp, ticker, action, price, quantity, strategy, pnl, account_id, company_name) VALUES (NOW(), %s, %s, %s, %s, %s, %s, %s, %s)",
+                                (ticker, "SELL", current_price, qty, STRATEGY_NAME, 0.0, acc_id, company_name),
                             )
                             conn.commit()
                             print(f"    [{acc_id}] SHORT {ticker} x {qty}")
