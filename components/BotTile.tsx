@@ -5,10 +5,11 @@ import ConfigureAgentModal from './ConfigureAgentModal';
 interface BotTileProps {
   accountId?: string | null;
   onStartBot?: () => void;
+  onStopBot?: () => void;
   onViewLogs?: () => void;
 }
 
-const BotTile: React.FC<BotTileProps> = ({ accountId, onStartBot, onViewLogs }) => {
+const BotTile: React.FC<BotTileProps> = ({ accountId, onStartBot, onStopBot, onViewLogs }) => {
   const [botStatus, setBotStatus] = useState({
     account_name: 'STANDARD STRATEGY',
     bot_name: 'ALPHA-01',
@@ -16,6 +17,8 @@ const BotTile: React.FC<BotTileProps> = ({ accountId, onStartBot, onViewLogs }) 
     strategy_name: "Sortino's Model",
     api_status: 'CONNECTED'
   });
+  const [isRunning, setIsRunning] = useState(false);
+  const [botActionLoading, setBotActionLoading] = useState(false);
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
 
   const fetchBotStatus = async () => {
@@ -31,11 +34,56 @@ const BotTile: React.FC<BotTileProps> = ({ accountId, onStartBot, onViewLogs }) 
     }
   };
 
+  const fetchBotState = async () => {
+    if (!accountId) return;
+    try {
+      const res = await fetch(`/api/trading?account_id=${accountId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setIsRunning(!!data.is_running);
+      }
+    } catch (error) {
+      console.error("Failed to fetch bot state", error);
+    }
+  };
+
   useEffect(() => {
     fetchBotStatus();
-    const interval = setInterval(fetchBotStatus, 30000); // Refresh every 30s
-    return () => clearInterval(interval);
+    fetchBotState();
+    const t = setInterval(() => {
+      fetchBotStatus();
+      fetchBotState();
+    }, 30000);
+    return () => clearInterval(t);
   }, [accountId]);
+
+  const handleStartBot = async () => {
+    if (!accountId || !onStartBot) return;
+    setBotActionLoading(true);
+    try {
+      await onStartBot();
+      await fetchBotState();
+    } catch (e) {
+      console.error('Start bot failed:', e);
+      alert(e instanceof Error ? e.message : 'Failed to start bot');
+    } finally {
+      setBotActionLoading(false);
+    }
+  };
+
+  const handleStopBot = async () => {
+    if (!accountId || !onStopBot) return;
+    setBotActionLoading(true);
+    try {
+      await onStopBot();
+      await fetchBotState();
+    } catch (e) {
+      console.error('Stop bot failed:', e);
+      alert(e instanceof Error ? e.message : 'Failed to stop bot');
+    } finally {
+      setBotActionLoading(false);
+    }
+  };
 
   return (
     <div className="bg-[#121212] border border-zinc-800 rounded-2xl p-6 shadow-sm">
@@ -79,15 +127,28 @@ const BotTile: React.FC<BotTileProps> = ({ accountId, onStartBot, onViewLogs }) 
       </div>
 
       <div className="flex gap-3">
-        <button
-          onClick={onStartBot}
-          className="flex-1 bg-[#86c7f3] hover:bg-[#6bb0e8] text-white font-bold text-xs uppercase tracking-widest py-3 px-4 rounded-xl transition-colors"
-        >
-          <div className="flex items-center justify-center gap-2">
-            <Play size={14} />
-            START BOT
-          </div>
-        </button>
+        {isRunning ? (
+          <button
+            onClick={handleStopBot}
+            disabled={!accountId || botActionLoading}
+            className="flex-1 bg-rose-500 hover:bg-rose-600 disabled:opacity-50 text-white font-bold text-xs uppercase tracking-widest py-3 px-4 rounded-xl transition-colors"
+          >
+            <div className="flex items-center justify-center gap-2">
+              {botActionLoading ? '…' : 'STOP BOT'}
+            </div>
+          </button>
+        ) : (
+          <button
+            onClick={handleStartBot}
+            disabled={!accountId || botActionLoading}
+            className="flex-1 bg-[#86c7f3] hover:bg-[#6bb0e8] disabled:opacity-50 text-white font-bold text-xs uppercase tracking-widest py-3 px-4 rounded-xl transition-colors"
+          >
+            <div className="flex items-center justify-center gap-2">
+              <Play size={14} />
+              {botActionLoading ? '…' : 'START BOT'}
+            </div>
+          </button>
+        )}
         <button
           onClick={onViewLogs}
           className="bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-bold text-xs uppercase tracking-widest py-3 px-4 rounded-xl transition-colors"

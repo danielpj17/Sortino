@@ -7,5 +7,9 @@
       "source": "/((?!api/).*)",
       "destination": "/index.html"
     }
-  ]
+  ],
+  "functions": {
+    "api/trading/index.js": { "maxDuration": 60 },
+    "api/trading/health-check.js": { "maxDuration": 60 }
+  }
 }

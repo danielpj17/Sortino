@@ -74,3 +74,20 @@ CREATE TABLE IF NOT EXISTS model_versions (
 CREATE INDEX idx_model_versions_active ON model_versions(is_active);
 CREATE INDEX idx_model_versions_created_at ON model_versions(created_at DESC);
 CREATE UNIQUE INDEX idx_model_versions_active_unique ON model_versions(is_active) WHERE is_active = TRUE;
+
+-- Bot state table: tracks which accounts have active trading bots (Heartbeat architecture)
+CREATE TABLE IF NOT EXISTS bot_state (
+    id SERIAL PRIMARY KEY,
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    is_running BOOLEAN DEFAULT FALSE,
+    always_on BOOLEAN DEFAULT FALSE,
+    last_heartbeat TIMESTAMPTZ,
+    last_error TEXT,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(account_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_bot_state_running ON bot_state(is_running);
+CREATE INDEX IF NOT EXISTS idx_bot_state_always_on ON bot_state(always_on);
+CREATE INDEX IF NOT EXISTS idx_bot_state_account_id ON bot_state(account_id);

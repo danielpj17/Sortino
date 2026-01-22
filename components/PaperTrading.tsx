@@ -266,7 +266,33 @@ const PaperTrading: React.FC = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-1">
-          <BotTile accountId={selectedAccountId} />
+          <BotTile
+            accountId={selectedAccountId}
+            onStartBot={async () => {
+              if (!selectedAccountId) return;
+              const res = await fetch('/api/trading', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ account_id: selectedAccountId, action: 'start' }),
+              });
+              if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.error || 'Failed to start bot');
+              }
+            }}
+            onStopBot={async () => {
+              if (!selectedAccountId) return;
+              const res = await fetch('/api/trading', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ account_id: selectedAccountId, action: 'stop' }),
+              });
+              if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.error || 'Failed to stop bot');
+              }
+            }}
+          />
         </div>
         <div className="lg:col-span-2 bg-[#121212] rounded-2xl p-6 border border-zinc-800">
           <PortfolioChart />

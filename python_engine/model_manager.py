@@ -58,16 +58,25 @@ def get_latest_model(database_url: str, model_dir: str = None) -> Optional[PPO]:
     conn = get_db_connection(database_url)
     try:
         cur = conn.cursor()
-        cur.execute("""
-            SELECT model_path, version_number
-            FROM model_versions
-            WHERE is_active = TRUE
-            ORDER BY created_at DESC
-            LIMIT 1
-        """)
-        row = cur.fetchone()
+        try:
+            cur.execute("""
+                SELECT model_path, version_number
+                FROM model_versions
+                WHERE is_active = TRUE
+                ORDER BY created_at DESC
+                LIMIT 1
+            """)
+            row = cur.fetchone()
+        except psycopg2.Error as e:
+            # model_versions table may not exist yet; fall back to default model
+            cur.close()
+            default_path = os.path.join(model_dir, "dow30_model.zip")
+            if os.path.isfile(default_path):
+                print(f"Loading default model from {default_path} (model_versions not available)")
+                return PPO.load(default_path)
+            return None
         cur.close()
-        
+
         if row:
             model_path, version = row
             full_path = os.path.join(model_dir, model_path) if not os.path.isabs(model_path) else model_path
@@ -76,13 +85,13 @@ def get_latest_model(database_url: str, model_dir: str = None) -> Optional[PPO]:
                 return PPO.load(full_path)
             else:
                 print(f"Warning: Model file not found: {full_path}")
-        
+
         # Fallback: try default model path
         default_path = os.path.join(model_dir, "dow30_model.zip")
         if os.path.isfile(default_path):
             print(f"Loading default model from {default_path}")
             return PPO.load(default_path)
-        
+
         return None
     finally:
         conn.close()
