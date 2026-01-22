@@ -96,6 +96,12 @@ def load_model():
         return False
 
 
+@app.route("/", methods=["GET", "HEAD"])
+def root():
+    """Root route for Render health checks and browser visits."""
+    return jsonify({"service": "Sortino Model API", "health": "/health", "predict": "POST /predict"})
+
+
 @app.route("/health", methods=["GET"])
 def health():
     return jsonify({"status": "ok", "model_loaded": MODEL is not None})
