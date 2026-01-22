@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Settings, Play, FileText } from 'lucide-react';
+import ConfigureAgentModal from './ConfigureAgentModal';
 
 interface BotTileProps {
   accountId?: string | null;
@@ -11,24 +12,26 @@ const BotTile: React.FC<BotTileProps> = ({ accountId, onStartBot, onViewLogs }) 
   const [botStatus, setBotStatus] = useState({
     account_name: 'STANDARD STRATEGY',
     bot_name: 'ALPHA-01',
-    account_type_display: 'MARGIN',
-    strategy_name: 'STANDARD STRATEGY',
+    account_type_display: 'CASH',
+    strategy_name: "Sortino's Model",
     api_status: 'CONNECTED'
   });
+  const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
+
+  const fetchBotStatus = async () => {
+    try {
+      const url = accountId ? `/api/bot-status?account_id=${accountId}` : '/api/bot-status';
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        setBotStatus(data);
+      }
+    } catch (error) {
+      console.error("Failed to fetch bot status", error);
+    }
+  };
 
   useEffect(() => {
-    const fetchBotStatus = async () => {
-      try {
-        const url = accountId ? `/api/bot-status?account_id=${accountId}` : '/api/bot-status';
-        const res = await fetch(url);
-        if (res.ok) {
-          const data = await res.json();
-          setBotStatus(data);
-        }
-      } catch (error) {
-        console.error("Failed to fetch bot status", error);
-      }
-    };
     fetchBotStatus();
     const interval = setInterval(fetchBotStatus, 30000); // Refresh every 30s
     return () => clearInterval(interval);
@@ -38,10 +41,13 @@ const BotTile: React.FC<BotTileProps> = ({ accountId, onStartBot, onViewLogs }) 
     <div className="bg-[#121212] border border-zinc-800 rounded-2xl p-6 shadow-sm">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
-          <div className="relative">
+          <button
+            onClick={() => setIsConfigModalOpen(true)}
+            className="relative hover:opacity-80 transition-opacity cursor-pointer"
+          >
             <Settings size={20} className="text-zinc-400" />
             <div className="absolute -top-1 -right-1 w-2 h-2 bg-rose-500 rounded-full"></div>
-          </div>
+          </button>
           <h2 className="text-base font-bold text-zinc-200 uppercase tracking-tight">BOT STATUS</h2>
         </div>
       </div>
@@ -92,6 +98,16 @@ const BotTile: React.FC<BotTileProps> = ({ accountId, onStartBot, onViewLogs }) 
           <FileText size={14} />
         </button>
       </div>
+
+      {/* Configure Agent Modal */}
+      <ConfigureAgentModal
+        accountId={accountId}
+        isOpen={isConfigModalOpen}
+        onClose={() => setIsConfigModalOpen(false)}
+        onSave={() => {
+          fetchBotStatus();
+        }}
+      />
     </div>
   );
 };
