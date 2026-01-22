@@ -7,9 +7,22 @@ interface Props {
 }
 
 const RecentTrades: React.FC<Props> = ({ trades }) => {
+  // Ensure trades is always an array
+  const safeTrades = Array.isArray(trades) ? trades : [];
+
+  if (safeTrades.length === 0) {
+    return (
+      <div className="space-y-3">
+        <div className="text-center py-8 text-zinc-500 text-sm">
+          No trades found
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-3">
-      {trades.map((trade) => (
+      {safeTrades.map((trade) => (
         <div key={trade.id} className="flex items-center justify-between p-3.5 bg-zinc-900/30 rounded-xl border border-zinc-800/50 hover:border-zinc-700/80 transition-all hover:bg-zinc-800/40">
           <div className="flex items-center gap-3">
             <div className={`w-9 h-9 rounded-lg flex items-center justify-center font-bold text-[10px] tracking-widest ${

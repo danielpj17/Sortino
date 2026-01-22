@@ -7,6 +7,7 @@ import { Trade } from '../types';
 const Dashboard: React.FC = () => {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [stats, setStats] = useState({ totalPnL: 0, winRate: 0, totalTrades: 0 });
+  const [error, setError] = useState<string | null>(null);
 
   // Fetch Data from our Bridge Server
   useEffect(() => {
@@ -14,15 +15,30 @@ const Dashboard: React.FC = () => {
       try {
         // 1. Get Trades
         const tradesRes = await fetch('/api/trades');
-        const tradesData = await tradesRes.json();
-        setTrades(tradesData);
+        if (tradesRes.ok) {
+          const tradesData = await tradesRes.json();
+          // Ensure it's an array
+          setTrades(Array.isArray(tradesData) ? tradesData : []);
+        } else {
+          console.error("Failed to fetch trades:", tradesRes.status);
+          setTrades([]);
+        }
 
         // 2. Get Stats
         const statsRes = await fetch('/api/stats');
-        const statsData = await statsRes.json();
-        setStats(statsData);
+        if (statsRes.ok) {
+          const statsData = await statsRes.json();
+          setStats(statsData);
+        } else {
+          console.error("Failed to fetch stats:", statsRes.status);
+          // Keep default stats
+        }
+        
+        setError(null);
       } catch (error) {
         console.error("Failed to fetch dashboard data:", error);
+        setError("Unable to load data. Please check your database connection.");
+        setTrades([]);
       }
     };
 
@@ -34,6 +50,12 @@ const Dashboard: React.FC = () => {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500 max-w-full overflow-x-hidden">
+      {error && (
+        <div className="bg-rose-500/10 border border-rose-500/50 rounded-xl p-4 text-rose-400 text-sm">
+          {error}
+        </div>
+      )}
+      
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl font-bold tracking-tight text-white">Dashboard</h1>

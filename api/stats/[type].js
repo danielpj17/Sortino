@@ -19,6 +19,12 @@ export default async function handler(req, res) {
   const { type } = req.query;
 
   try {
+    // Check if DATABASE_URL is set
+    if (!process.env.DATABASE_URL) {
+      console.error('DATABASE_URL is not set');
+      return res.status(500).json({ totalPnL: 0, winRate: 0, totalTrades: 0 });
+    }
+
     const pool = getPool();
     const query = `
       SELECT 
@@ -41,7 +47,8 @@ export default async function handler(req, res) {
       totalTrades: totalTrades
     });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Database Error' });
+    console.error('Database error:', err);
+    // Return default stats instead of error object
+    res.status(500).json({ totalPnL: 0, winRate: 0, totalTrades: 0 });
   }
 }

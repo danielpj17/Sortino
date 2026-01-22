@@ -19,6 +19,12 @@ export default async function handler(req, res) {
   const { type } = req.query;
 
   try {
+    // Check if DATABASE_URL is set
+    if (!process.env.DATABASE_URL) {
+      console.error('DATABASE_URL is not set');
+      return res.status(500).json([]);
+    }
+
     const pool = getPool();
     const result = await pool.query(`
       SELECT t.*, a.name as account_name 
@@ -28,9 +34,10 @@ export default async function handler(req, res) {
       ORDER BY t.timestamp DESC 
       LIMIT 100
     `, [type]);
-    res.status(200).json(result.rows);
+    res.status(200).json(result.rows || []);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Internal Server Error' });
+    console.error('Database error:', err);
+    // Return empty array instead of error object
+    res.status(500).json([]);
   }
 }

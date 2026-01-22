@@ -14,10 +14,23 @@ const PaperTrading: React.FC = () => {
         const tradesRes = await fetch('/api/trades/Paper');
         const statsRes = await fetch('/api/stats/Paper');
         
-        setTrades(await tradesRes.json());
-        setStats(await statsRes.json());
+        if (tradesRes.ok) {
+          const tradesData = await tradesRes.json();
+          setTrades(Array.isArray(tradesData) ? tradesData : []);
+        } else {
+          console.error("Failed to fetch paper trades:", tradesRes.status);
+          setTrades([]);
+        }
+        
+        if (statsRes.ok) {
+          const statsData = await statsRes.json();
+          setStats(statsData);
+        } else {
+          console.error("Failed to fetch paper stats:", statsRes.status);
+        }
       } catch (error) {
         console.error("Failed to fetch paper data", error);
+        setTrades([]);
       }
     };
     fetchData();

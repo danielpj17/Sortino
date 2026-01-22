@@ -15,11 +15,20 @@ const TradeHistory: React.FC = () => {
     const fetchHistory = async () => {
       try {
         const res = await fetch('/api/trades'); // Get ALL trades
-        const data = await res.json();
-        setTrades(data);
-        setFilteredTrades(data);
+        if (res.ok) {
+          const data = await res.json();
+          const safeData = Array.isArray(data) ? data : [];
+          setTrades(safeData);
+          setFilteredTrades(safeData);
+        } else {
+          console.error("Failed to load history:", res.status);
+          setTrades([]);
+          setFilteredTrades([]);
+        }
       } catch (err) {
         console.error("Failed to load history:", err);
+        setTrades([]);
+        setFilteredTrades([]);
       }
     };
     fetchHistory();
@@ -27,7 +36,9 @@ const TradeHistory: React.FC = () => {
 
   // Filter Logic (Search + Account Type)
   useEffect(() => {
-    let result = trades;
+    // Ensure trades is always an array
+    const safeTrades = Array.isArray(trades) ? trades : [];
+    let result = safeTrades;
 
     // 1. Filter by Type
     if (filterType !== 'All') {
