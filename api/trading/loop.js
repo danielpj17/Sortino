@@ -110,10 +110,19 @@ async function insertTrade(pool, { ticker, action, price, quantity, account_id, 
 export async function executeTradingLoop(accountId) {
   if (!isMarketOpen()) {
     const pool = getPool();
-    await pool.query(
-      `UPDATE bot_state SET last_heartbeat = NOW(), updated_at = NOW() WHERE account_id = $1`,
-      [accountId]
-    );
+    try {
+      await pool.query(
+        `UPDATE bot_state 
+         SET last_heartbeat = NOW(), updated_at = NOW() 
+         WHERE account_id = $1 
+         AND account_id IN (SELECT id FROM accounts)`,
+        [accountId]
+      );
+    } catch (e) {
+      // If update fails due to foreign key constraint, account may have been deleted
+      // Log but don't throw - this is handled by the caller
+      console.warn(`[loop] Could not update heartbeat for account ${accountId}:`, e.message);
+    }
     return { success: true, results: [], skipped: true, reason: 'market_closed' };
   }
 
@@ -140,10 +149,18 @@ export async function executeTradingLoop(accountId) {
   try {
     account = await getAccount(acc.api_key, acc.secret_key, baseUrl);
   } catch (e) {
-    await pool.query(
-      `UPDATE bot_state SET last_error = $1, updated_at = NOW() WHERE account_id = $2`,
-      [e.message, accountId]
-    );
+    try {
+      await pool.query(
+        `UPDATE bot_state 
+         SET last_error = $1, updated_at = NOW() 
+         WHERE account_id = $2 
+         AND account_id IN (SELECT id FROM accounts)`,
+        [e.message, accountId]
+      );
+    } catch (updateErr) {
+      // If update fails, log but don't throw - the original error is more important
+      console.warn(`[loop] Could not update error state for account ${accountId}:`, updateErr.message);
+    }
     throw e;
   }
 
@@ -268,11 +285,19 @@ export async function executeTradingLoop(accountId) {
     }
   }
 
-  await pool.query(
-    `UPDATE bot_state SET last_heartbeat = NOW(), last_error = NULL, updated_at = NOW()
-     WHERE account_id = $1`,
-    [accountId]
-  );
+  try {
+    await pool.query(
+      `UPDATE bot_state 
+       SET last_heartbeat = NOW(), last_error = NULL, updated_at = NOW()
+       WHERE account_id = $1 
+       AND account_id IN (SELECT id FROM accounts)`,
+      [accountId]
+    );
+  } catch (e) {
+    // If update fails due to foreign key constraint, log but don't throw
+    // The trading loop completed successfully, this is just a state update
+    console.warn(`[loop] Could not update final heartbeat for account ${accountId}:`, e.message);
+  }
 
   return { success: true, results };
 }
