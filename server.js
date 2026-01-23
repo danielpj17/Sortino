@@ -10,6 +10,8 @@ import statsTypeHandler from './api/stats/[type].js';
 import tradesTypeHandler from './api/trades/[type].js';
 import statsHandler from './api/stats.js';
 import tradesHandler from './api/trades.js';
+import accountsHandler from './api/accounts.js';
+import tradingHandler from './api/trading/index.js';
 
 dotenv.config();
 
@@ -46,6 +48,9 @@ function wrap(handler) {
 app.get('/api/bot-status', wrap(botStatusHandler));
 app.post('/api/bot-status', wrap(botStatusHandler));
 app.get('/api/market-prices', wrap(marketPricesHandler));
+app.get('/api/accounts', wrap(accountsHandler));
+app.get('/api/trading', wrap(tradingHandler));
+app.post('/api/trading', wrap(tradingHandler));
 
 app.get('/api/stats/:type', (req, res, next) => {
   req.query = { ...req.query, type: req.params.type };
@@ -59,6 +64,11 @@ app.get('/api/trades/:type', (req, res, next) => {
 });
 app.get('/api/trades', wrap(tradesHandler));
 
+// Catch-all for undefined API endpoints
+app.all('/api/*', (req, res) => {
+  res.status(404).json({ error: 'API endpoint not found' });
+});
+
 // Serve static files from the Vite build in production
 if (process.env.NODE_ENV === 'production') {
   app.use(express.static(path.join(__dirname, 'dist')));
@@ -67,8 +77,6 @@ if (process.env.NODE_ENV === 'production') {
   app.get('*', (req, res) => {
     if (!req.path.startsWith('/api')) {
       res.sendFile(path.join(__dirname, 'dist', 'index.html'));
-    } else {
-      res.status(404).json({ error: 'API endpoint not found' });
     }
   });
 }
