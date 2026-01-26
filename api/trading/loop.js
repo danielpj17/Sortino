@@ -63,11 +63,19 @@ async function getModelPrediction(ticker) {
     // #region agent log
     fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:37',message:'Model API request start',data:{ticker,modelApiUrl:MODEL_API_URL},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
     // #endregion
+    
+    // Add timeout to prevent hanging (10 seconds max per prediction)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    
     const res = await fetch(`${MODEL_API_URL}/predict`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ticker, period: '1mo' }),
+      signal: controller.signal,
     });
+    
+    clearTimeout(timeoutId);
     // #region agent log
     fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:45',message:'Model API response',data:{ticker,status:res.status,ok:res.ok},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
     // #endregion
@@ -79,9 +87,13 @@ async function getModelPrediction(ticker) {
     return data;
   } catch (e) {
     // #region agent log
-    fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:50',message:'Model API error',data:{ticker,error:e.message,modelApiUrl:MODEL_API_URL},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+    fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:50',message:'Model API error',data:{ticker,error:e.message,modelApiUrl:MODEL_API_URL,isTimeout:e.name==='AbortError'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
     // #endregion
-    console.error(`Model prediction ${ticker}:`, e.message);
+    if (e.name === 'AbortError') {
+      console.error(`Model prediction ${ticker}: Timeout after 10 seconds`);
+    } else {
+      console.error(`Model prediction ${ticker}:`, e.message);
+    }
     return null;
   }
 }
@@ -96,11 +108,26 @@ async function alpacaFetch(baseUrl, path, { method = 'GET', body } = {}, headers
     },
   };
   if (body && (method === 'POST' || method === 'PUT')) opts.body = JSON.stringify(body);
-  const res = await fetch(url, opts);
-  const text = await res.text();
-  const data = text ? JSON.parse(text) : {};
-  if (!res.ok) throw new Error(data.message || `Alpaca ${res.status}`);
-  return data;
+  
+  // Add timeout to prevent hanging (5 seconds max per Alpaca API call)
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 5000);
+  opts.signal = controller.signal;
+  
+  try {
+    const res = await fetch(url, opts);
+    clearTimeout(timeoutId);
+    const text = await res.text();
+    const data = text ? JSON.parse(text) : {};
+    if (!res.ok) throw new Error(data.message || `Alpaca ${res.status}`);
+    return data;
+  } catch (e) {
+    clearTimeout(timeoutId);
+    if (e.name === 'AbortError') {
+      throw new Error(`Alpaca API timeout after 5 seconds: ${path}`);
+    }
+    throw e;
+  }
 }
 
 async function getAccount(apiKey, secretKey, baseUrl) {
@@ -226,7 +253,7 @@ export async function executeTradingLoop(accountId) {
 
   // Process tickers in batches to avoid timeout
   // Use time-based rotation if metadata column doesn't exist
-  const BATCH_SIZE = 15; // Process 15 tickers per run (should complete in ~30-45 seconds)
+  const BATCH_SIZE = 10; // Process 10 tickers per run (should complete in ~20-30 seconds with timeouts)
   let batchStart = 0;
   
   try {
@@ -254,6 +281,11 @@ export async function executeTradingLoop(accountId) {
 
   const tickersToProcess = DOW_30.slice(batchStart, batchStart + BATCH_SIZE);
   const nextBatchStart = (batchStart + BATCH_SIZE) % DOW_30.length;
+  
+  // Safety check: if batch size calculation resulted in empty array, use first few tickers
+  if (tickersToProcess.length === 0) {
+    tickersToProcess.push(...DOW_30.slice(0, Math.min(BATCH_SIZE, DOW_30.length)));
+  }
 
   // #region agent log
   fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:195',message:'Starting ticker loop (batched)',data:{accountId,modelApiUrl:MODEL_API_URL,totalTickers:DOW_30.length,batchStart,tickersInBatch:tickersToProcess.length,nextBatchStart},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});

@@ -9,6 +9,7 @@
     }
   ],
   "functions": {
-    "api/trading/index.js": { "maxDuration": 300 }
+    "api/trading/index.js": { "maxDuration": 300 },
+    "api/trading/health-check.js": { "maxDuration": 300 }
   }
 }
