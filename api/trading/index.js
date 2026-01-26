@@ -47,7 +47,14 @@ export default async function handler(req, res) {
            WHERE bs.is_running = TRUE OR bs.always_on = TRUE`
         );
 
+        // #region agent log
+        fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/index.js:43',message:'Health-check: active bots query',data:{activeBotsCount:rows.length,accountIds:rows.map(r=>r.account_id)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
+
         if (rows.length === 0) {
+          // #region agent log
+          fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/index.js:51',message:'Health-check: no active bots found',data:{reason:'is_running or always_on not set'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+          // #endregion
           return res.status(200).json({
             status: 'ok',
             message: 'No active bots',
@@ -58,9 +65,18 @@ export default async function handler(req, res) {
         const results = [];
         for (const { account_id } of rows) {
           try {
+            // #region agent log
+            fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/index.js:61',message:'Health-check: executing trading loop',data:{accountId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+            // #endregion
             const out = await executeTradingLoop(account_id);
+            // #region agent log
+            fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/index.js:63',message:'Health-check: trading loop completed',data:{accountId,success:out.success,skipped:out.skipped,reason:out.reason,resultsCount:out.results?.length||0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+            // #endregion
             results.push({ account_id, status: 'success', ...out });
           } catch (e) {
+            // #region agent log
+            fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/index.js:66',message:'Health-check: trading loop error',data:{accountId,error:e.message},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
+            // #endregion
             console.error(`[trading] Error processing account ${account_id}:`, e.message);
             results.push({
               account_id,
