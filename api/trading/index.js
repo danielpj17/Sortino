@@ -220,33 +220,34 @@ export default async function handler(req, res) {
         account_id: accountId,
       });
     }
+    return; // Exit after handling GET request
   }
 
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
-
-  let body = req.body;
-  if (typeof body === 'string') {
-    try {
-      body = JSON.parse(body);
-    } catch {
-      return res.status(400).json({ error: 'Invalid JSON' });
+    if (req.method !== 'POST') {
+      return res.status(405).json({ error: 'Method not allowed' });
     }
-  }
 
-  const { account_id, action } = body || {};
-  const accountId = account_id;
+    let body = req.body;
+    if (typeof body === 'string') {
+      try {
+        body = JSON.parse(body);
+      } catch {
+        return res.status(400).json({ error: 'Invalid JSON' });
+      }
+    }
 
-  if (!accountId) {
-    return res.status(400).json({ error: 'account_id required' });
-  }
+    const { account_id, action } = body || {};
+    const accountId = account_id;
 
-  if (action !== 'start' && action !== 'stop') {
-    return res.status(400).json({ error: 'action must be "start" or "stop"' });
-  }
+    if (!accountId) {
+      return res.status(400).json({ error: 'account_id required' });
+    }
 
-  try {
+    if (action !== 'start' && action !== 'stop') {
+      return res.status(400).json({ error: 'action must be "start" or "stop"' });
+    }
+
+    try {
     const pool = getPool();
 
     // Validate account exists before any bot_state operations
@@ -362,13 +363,21 @@ export default async function handler(req, res) {
         throw e;
       }
     }
+    } catch (e) {
+      // Top-level error handler to prevent crashes
+      console.error(`[trading] Route error for account ${accountId || 'unknown'}:`, e);
+      return res.status(500).json({ 
+        error: e.message || 'Internal server error',
+        account_id: accountId,
+        message: 'An error occurred processing the request'
+      });
+    }
   } catch (e) {
-    // Top-level error handler to prevent crashes
-    console.error(`[trading] Route error for account ${accountId || 'unknown'}:`, e);
+    // Outer try-catch to prevent crashes
+    console.error('[trading] Fatal error:', e);
     return res.status(500).json({ 
-      error: e.message || 'Internal server error',
-      account_id: accountId,
-      message: 'An error occurred processing the request'
+      error: 'Internal server error',
+      message: e.message || 'Unknown error occurred'
     });
   }
 }
