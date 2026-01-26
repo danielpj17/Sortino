@@ -191,11 +191,42 @@ export async function executeTradingLoop(accountId) {
 
   const results = [];
 
+  // Process tickers in batches to avoid timeout
+  // Use time-based rotation if metadata column doesn't exist
+  const BATCH_SIZE = 15; // Process 15 tickers per run (should complete in ~30-45 seconds)
+  let batchStart = 0;
+  
+  try {
+    // Try to get batch position from metadata column
+    const batchResult = await pool.query(
+      `SELECT COALESCE((metadata->>'batch_start')::int, NULL) as batch_start
+       FROM bot_state 
+       WHERE account_id = $1`,
+      [accountId]
+    );
+    if (batchResult.rows.length > 0 && batchResult.rows[0].batch_start !== null) {
+      batchStart = batchResult.rows[0].batch_start;
+    } else {
+      // Fallback: use time-based rotation (changes every minute)
+      // This ensures different tickers are processed over time even without metadata column
+      const minutesSinceEpoch = Math.floor(Date.now() / 60000);
+      batchStart = (minutesSinceEpoch * BATCH_SIZE) % DOW_30.length;
+    }
+  } catch (e) {
+    // If metadata column doesn't exist or query fails, use time-based rotation
+    const minutesSinceEpoch = Math.floor(Date.now() / 60000);
+    batchStart = (minutesSinceEpoch * BATCH_SIZE) % DOW_30.length;
+    console.warn(`[loop] Using time-based batch rotation for account ${accountId}:`, e.message);
+  }
+
+  const tickersToProcess = DOW_30.slice(batchStart, batchStart + BATCH_SIZE);
+  const nextBatchStart = (batchStart + BATCH_SIZE) % DOW_30.length;
+
   // #region agent log
-  fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:165',message:'Starting ticker loop',data:{accountId,modelApiUrl:MODEL_API_URL,tickerCount:DOW_30.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+  fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:195',message:'Starting ticker loop (batched)',data:{accountId,modelApiUrl:MODEL_API_URL,totalTickers:DOW_30.length,batchStart,tickersInBatch:tickersToProcess.length,nextBatchStart},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
   // #endregion
 
-  for (const ticker of DOW_30) {
+  for (const ticker of tickersToProcess) {
     try {
       // #region agent log
       fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:168',message:'Fetching model prediction',data:{accountId,ticker},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
@@ -363,24 +394,44 @@ export async function executeTradingLoop(accountId) {
   }
   
   // #region agent log
-  fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:276',message:'Trading loop completed all tickers',data:{accountId,resultsCount:results.length,results:results.map(r=>({ticker:r.ticker,status:r.status,reason:r.reason,action:r.action}))},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+  fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:276',message:'Trading loop completed all tickers in batch',data:{accountId,resultsCount:results.length,results:results.map(r=>({ticker:r.ticker,status:r.status,reason:r.reason,action:r.action})),nextBatchStart},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
   // #endregion
 
   try {
-    await pool.query(
-      `UPDATE bot_state 
-       SET last_heartbeat = NOW(), last_error = NULL, updated_at = NOW()
-       WHERE account_id = $1 
-       AND account_id IN (SELECT id FROM accounts)`,
-      [accountId]
-    );
+    // Update bot_state with next batch start and heartbeat
+    // Try to update with metadata column (if it exists)
+    try {
+      // First check if metadata column exists by attempting to update it
+      await pool.query(
+        `UPDATE bot_state 
+         SET last_heartbeat = NOW(), 
+             last_error = NULL, 
+             updated_at = NOW(),
+             metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('batch_start', $2)
+         WHERE account_id = $1 
+         AND account_id IN (SELECT id FROM accounts)`,
+        [accountId, nextBatchStart]
+      );
+    } catch (metadataErr) {
+      // If metadata column doesn't exist, update without it
+      // Time-based rotation will still work
+      await pool.query(
+        `UPDATE bot_state 
+         SET last_heartbeat = NOW(), 
+             last_error = NULL, 
+             updated_at = NOW()
+         WHERE account_id = $1 
+         AND account_id IN (SELECT id FROM accounts)`,
+        [accountId]
+      );
+    }
   } catch (e) {
     // If update fails due to foreign key constraint, log but don't throw
     // The trading loop completed successfully, this is just a state update
     console.warn(`[loop] Could not update final heartbeat for account ${accountId}:`, e.message);
   }
 
-  return { success: true, results };
+  return { success: true, results, batchInfo: { processed: tickersToProcess.length, nextBatchStart, totalTickers: DOW_30.length } };
 }
 
 export { isMarketOpen };
