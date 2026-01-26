@@ -6,7 +6,7 @@ The trading bot uses a **Heartbeat** architecture: a cron job pings the health-c
 
 Use your deployed base URL:
 
-- **Production:** `https://sortino.vercel.app/api/trading/health-check`
+- **Production:** `https://sortino.vercel.app/api/trading?health-check=true`
 - **Preview/local:** Replace with your Vercel preview URL or `http://localhost:5173` + your dev API port if you run the API locally.
 
 ## 2. cron-job.org setup
@@ -15,7 +15,7 @@ Use your deployed base URL:
 2. **Create** → **Cronjob**.
 3. **Title:** e.g. `Sortino Heartbeat`.
 4. **URL:**  
-   `https://sortino.vercel.app/api/trading/health-check`  
+   `https://sortino.vercel.app/api/trading?health-check=true`  
    (or your actual deployed URL).
 5. **Schedule:**
    - **Interval:** every **2 minutes** (or 1 minute if you prefer).  
@@ -44,7 +44,7 @@ Use your deployed base URL:
 
 ## 4. Flow
 
-1. cron-job.org sends **GET** to `/api/trading/health-check` every 1–2 minutes.
+1. cron-job.org sends **GET** to `/api/trading?health-check=true` every 1–2 minutes.
 2. Health-check reads **Neon** `bot_state`: accounts with `is_running` or `always_on`.
 3. For each such account, it runs **one** trading loop (DOW 30 scan → Model API predictions → Alpaca execution).
 4. Market hours (MDT 7:30 AM–2:00 PM) are enforced inside the loop; outside that window the loop no-ops but still updates `last_heartbeat`.

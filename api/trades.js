@@ -17,6 +17,8 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
+  const { type, account_id } = req.query;
+
   try {
     // Check if DATABASE_URL is set
     if (!process.env.DATABASE_URL) {
@@ -24,9 +26,7 @@ export default async function handler(req, res) {
       return res.status(500).json([]);
     }
 
-    const { account_id } = req.query;
     const pool = getPool();
-    
     let query = `
       SELECT t.*, a.name as account_name 
       FROM trades t 
@@ -34,9 +34,19 @@ export default async function handler(req, res) {
     `;
     const params = [];
     
+    // Add type filter if provided (from trades/[type].js)
+    if (type) {
+      query += ` WHERE a.type = $1`;
+      params.push(type);
+    }
+    
     // Add account_id filter if provided
     if (account_id) {
-      query += ` WHERE t.account_id = $1`;
+      if (params.length === 0) {
+        query += ` WHERE t.account_id = $1`;
+      } else {
+        query += ` AND t.account_id = $${params.length + 1}`;
+      }
       params.push(account_id);
     }
     

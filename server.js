@@ -6,8 +6,6 @@ import { fileURLToPath } from 'url';
 import { getPool } from './api/db.js';
 import botStatusHandler from './api/bot-status.js';
 import marketPricesHandler from './api/market-prices.js';
-import statsTypeHandler from './api/stats/[type].js';
-import tradesTypeHandler from './api/trades/[type].js';
 import statsHandler from './api/stats.js';
 import tradesHandler from './api/trades.js';
 import accountsHandler from './api/accounts.js';
@@ -54,16 +52,7 @@ app.delete('/api/accounts', wrap(accountsHandler));
 app.get('/api/trading', wrap(tradingHandler));
 app.post('/api/trading', wrap(tradingHandler));
 
-app.get('/api/stats/:type', (req, res, next) => {
-  req.query = { ...req.query, type: req.params.type };
-  return wrap(statsTypeHandler)(req, res, next);
-});
 app.get('/api/stats', wrap(statsHandler));
-
-app.get('/api/trades/:type', (req, res, next) => {
-  req.query = { ...req.query, type: req.params.type };
-  return wrap(tradesTypeHandler)(req, res, next);
-});
 app.get('/api/trades', wrap(tradesHandler));
 
 // Catch-all for undefined API endpoints

@@ -1,6 +1,7 @@
 /**
  * /api/trading
  * GET ?account_id=1 – Bot status for account (is_running, always_on, last_heartbeat).
+ * GET ?health-check=true – Heartbeat endpoint for cron (runs trading loops for all active bots).
  * POST { account_id, action: 'start'|'stop' } – Start or stop bot; start runs one loop immediately.
  */
 
@@ -19,6 +20,98 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'GET') {
+    // Handle health-check endpoint (merged from trading/health-check.js)
+    if (req.query?.['health-check'] === 'true' || req.query?.health_check === 'true') {
+      try {
+        const pool = getPool();
+        
+        // First, clean up orphaned bot_state records (account_ids that don't exist in accounts)
+        try {
+          const cleanupResult = await pool.query(
+            `DELETE FROM bot_state 
+             WHERE account_id NOT IN (SELECT id FROM accounts)`
+          );
+          if (cleanupResult.rowCount > 0) {
+            console.log(`[trading] Cleaned up ${cleanupResult.rowCount} orphaned bot_state record(s)`);
+          }
+        } catch (cleanupError) {
+          // Log but don't fail - cleanup is best effort
+          console.warn('[trading] Cleanup warning:', cleanupError.message);
+        }
+
+        // Use JOIN to ensure we only get bot_state records with valid account_ids
+        const { rows } = await pool.query(
+          `SELECT bs.account_id 
+           FROM bot_state bs
+           INNER JOIN accounts a ON bs.account_id = a.id
+           WHERE bs.is_running = TRUE OR bs.always_on = TRUE`
+        );
+
+        if (rows.length === 0) {
+          return res.status(200).json({
+            status: 'ok',
+            message: 'No active bots',
+            bots_processed: 0,
+          });
+        }
+
+        const results = [];
+        for (const { account_id } of rows) {
+          try {
+            const out = await executeTradingLoop(account_id);
+            results.push({ account_id, status: 'success', ...out });
+          } catch (e) {
+            console.error(`[trading] Error processing account ${account_id}:`, e.message);
+            results.push({
+              account_id,
+              status: 'error',
+              error: e.message,
+            });
+          }
+        }
+
+        return res.status(200).json({
+          status: 'ok',
+          bots_processed: rows.length,
+          results,
+        });
+      } catch (e) {
+        console.error('[trading] Health check fatal error:', e);
+        const msg = e.message || '';
+        if (msg.includes('relation "bot_state" does not exist') || msg.includes('relation \'bot_state\' does not exist')) {
+          return res.status(503).json({
+            error: 'Database migration required',
+            hint: 'Run the bot_state schema in Neon SQL Editor. See HEARTBEAT_SETUP.md Step 1.',
+          });
+        }
+        // Check for foreign key constraint violations
+        if (msg.includes('foreign key constraint') || msg.includes('violates foreign key')) {
+          console.error('[trading] Foreign key constraint error - attempting cleanup');
+          // Try to clean up and return a warning instead of error
+          try {
+            const pool = getPool();
+            await pool.query(
+              `DELETE FROM bot_state 
+               WHERE account_id NOT IN (SELECT id FROM accounts)`
+            );
+            return res.status(200).json({
+              status: 'ok',
+              message: 'Health check completed after cleanup',
+              bots_processed: 0,
+              warning: 'Orphaned bot_state records were cleaned up',
+            });
+          } catch (cleanupErr) {
+            return res.status(500).json({
+              error: 'Database integrity issue detected',
+              details: 'Foreign key constraint violation. Please check bot_state table for orphaned records.',
+            });
+          }
+        }
+        return res.status(500).json({ error: e.message });
+      }
+    }
+
+    // Normal GET - bot status for account
     const accountId = req.query?.account_id;
     if (!accountId) {
       return res.status(400).json({ 

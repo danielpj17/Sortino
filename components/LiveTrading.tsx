@@ -84,11 +84,11 @@ const LiveTrading: React.FC = () => {
     const fetchData = async () => {
       try {
         const tradesUrl = selectedAccountId 
-          ? `/api/trades/Live?account_id=${selectedAccountId}`
-          : '/api/trades/Live';
+          ? `/api/trades?type=Live&account_id=${selectedAccountId}`
+          : '/api/trades?type=Live';
         const statsUrl = selectedAccountId
-          ? `/api/stats/Live?account_id=${selectedAccountId}`
-          : '/api/stats/Live';
+          ? `/api/stats?type=Live&account_id=${selectedAccountId}`
+          : '/api/stats?type=Live';
         
         const tradesRes = await fetch(tradesUrl);
         const statsRes = await fetch(statsUrl);

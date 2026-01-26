@@ -52,9 +52,9 @@ const TradeHistory: React.FC = () => {
       try {
         let url = '/api/trades';
         if (filterType !== 'All') {
-          url = `/api/trades/${filterType}`;
+          url = `/api/trades?type=${filterType}`;
           if (selectedAccountId) {
-            url += `?account_id=${selectedAccountId}`;
+            url += `&account_id=${selectedAccountId}`;
           }
         } else if (selectedAccountId) {
           url = `/api/trades?account_id=${selectedAccountId}`;

@@ -84,11 +84,11 @@ const PaperTrading: React.FC = () => {
     const fetchData = async () => {
       try {
         const tradesUrl = selectedAccountId 
-          ? `/api/trades/Paper?account_id=${selectedAccountId}`
-          : '/api/trades/Paper';
+          ? `/api/trades?type=Paper&account_id=${selectedAccountId}`
+          : '/api/trades?type=Paper';
         const statsUrl = selectedAccountId
-          ? `/api/stats/Paper?account_id=${selectedAccountId}`
-          : '/api/stats/Paper';
+          ? `/api/stats?type=Paper&account_id=${selectedAccountId}`
+          : '/api/stats?type=Paper';
         
         const tradesRes = await fetch(tradesUrl);
         const statsRes = await fetch(statsUrl);
