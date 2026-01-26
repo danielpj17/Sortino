@@ -235,12 +235,37 @@ export async function executeTradingLoop(accountId) {
       const pred = await getModelPrediction(ticker);
       
       // #region agent log
-      fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:171',message:'Model prediction received',data:{accountId,ticker,hasPrediction:!!pred,error:pred?.error,action:pred?.action,actionCode:pred?.action_code,price:pred?.price},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+      fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:171',message:'Model prediction received',data:{accountId,ticker,hasPrediction:!!pred,error:pred?.error,action:pred?.action,actionCode:pred?.action_code,price:pred?.price,buyProb:pred?.buy_probability,sellProb:pred?.sell_probability,priceChange10d:pred?.price_change_10d_pct,volatility10d:pred?.volatility_10d,dataPoints:pred?.data_points},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
       // #endregion
       
       if (!pred || pred.error) {
         results.push({ ticker, status: 'skip', reason: 'no_prediction' });
         continue;
+      }
+
+      // Store prediction in database for analysis
+      try {
+        await pool.query(
+          `INSERT INTO model_predictions 
+           (ticker, account_id, action_code, action_type, price, buy_probability, sell_probability, 
+            price_change_10d_pct, volatility_10d, data_points)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+          [
+            ticker,
+            accountId,
+            pred.action_code,
+            pred.action,
+            pred.price,
+            pred.buy_probability || null,
+            pred.sell_probability || null,
+            pred.price_change_10d_pct || null,
+            pred.volatility_10d || null,
+            pred.data_points || null
+          ]
+        );
+      } catch (predErr) {
+        // If table doesn't exist, log but continue
+        console.warn(`[loop] Could not store prediction for ${ticker}:`, predErr.message);
       }
 
       const actionType = pred.action || (pred.action_code === 1 ? 'BUY' : 'SELL');
@@ -292,11 +317,26 @@ export async function executeTradingLoop(accountId) {
             // #region agent log
             fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:207',message:'Trade executed: covered short',data:{accountId,ticker,qty:closeQty},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
             // #endregion
+            // Update prediction record with trade execution
+            try {
+              const tradeResult = await pool.query('SELECT id FROM trades WHERE ticker = $1 AND account_id = $2 ORDER BY timestamp DESC LIMIT 1', [ticker, accountId]);
+              if (tradeResult.rows.length > 0) {
+                await pool.query('UPDATE model_predictions SET was_executed = TRUE, trade_id = $1, skip_reason = NULL WHERE ticker = $2 AND account_id = $3 AND timestamp > NOW() - INTERVAL \'1 minute\' ORDER BY timestamp DESC LIMIT 1', [tradeResult.rows[0].id, ticker, accountId]);
+              }
+            } catch (updateErr) {
+              // Ignore update errors
+            }
             results.push({ ticker, action: 'BUY', qty: closeQty, status: 'covered_short' });
           } else {
             // #region agent log
             fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:209',message:'Skipped: already long',data:{accountId,ticker},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
             // #endregion
+            // Update prediction record with skip reason
+            try {
+              await pool.query('UPDATE model_predictions SET skip_reason = $1 WHERE ticker = $2 AND account_id = $3 AND timestamp > NOW() - INTERVAL \'1 minute\' ORDER BY timestamp DESC LIMIT 1', ['already_long', ticker, accountId]);
+            } catch (updateErr) {
+              // Ignore update errors
+            }
             results.push({ ticker, action: 'BUY', status: 'skip', reason: 'already_long' });
           }
         } else {
@@ -320,6 +360,15 @@ export async function executeTradingLoop(accountId) {
           // #region agent log
           fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:226',message:'Trade executed: BUY filled',data:{accountId,ticker,qty},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
           // #endregion
+          // Update prediction record with trade execution
+          try {
+            const tradeResult = await pool.query('SELECT id FROM trades WHERE ticker = $1 AND account_id = $2 ORDER BY timestamp DESC LIMIT 1', [ticker, accountId]);
+            if (tradeResult.rows.length > 0) {
+              await pool.query('UPDATE model_predictions SET was_executed = TRUE, trade_id = $1, skip_reason = NULL WHERE ticker = $2 AND account_id = $3 AND timestamp > NOW() - INTERVAL \'1 minute\' ORDER BY timestamp DESC LIMIT 1', [tradeResult.rows[0].id, ticker, accountId]);
+            }
+          } catch (updateErr) {
+            // Ignore update errors
+          }
           results.push({ ticker, action: 'BUY', qty, status: 'filled' });
         }
       } else {
@@ -380,6 +429,12 @@ export async function executeTradingLoop(accountId) {
             // #region agent log
             fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:268',message:'Skipped: SELL with no position, shorting disabled',data:{accountId,ticker,allowShorting},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
             // #endregion
+            // Update prediction record with skip reason
+            try {
+              await pool.query('UPDATE model_predictions SET skip_reason = $1 WHERE ticker = $2 AND account_id = $3 AND timestamp > NOW() - INTERVAL \'1 minute\' ORDER BY timestamp DESC LIMIT 1', ['shorting_disabled', ticker, accountId]);
+            } catch (updateErr) {
+              // Ignore update errors
+            }
             results.push({ ticker, action: 'SELL', status: 'skip', reason: 'shorting_disabled' });
           }
         }
@@ -393,8 +448,24 @@ export async function executeTradingLoop(accountId) {
     }
   }
   
+  // Calculate prediction statistics
+  const predictionStats = {
+    total: results.length,
+    buy: results.filter(r => r.action === 'BUY').length,
+    sell: results.filter(r => r.action === 'SELL').length,
+    skipped: results.filter(r => r.status === 'skip').length,
+    executed: results.filter(r => r.status !== 'skip' && r.status !== 'error').length,
+    errors: results.filter(r => r.status === 'error').length,
+    skipReasons: {} as Record<string, number>
+  };
+  results.forEach(r => {
+    if (r.status === 'skip' && r.reason) {
+      predictionStats.skipReasons[r.reason] = (predictionStats.skipReasons[r.reason] || 0) + 1;
+    }
+  });
+
   // #region agent log
-  fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:276',message:'Trading loop completed all tickers in batch',data:{accountId,resultsCount:results.length,results:results.map(r=>({ticker:r.ticker,status:r.status,reason:r.reason,action:r.action})),nextBatchStart},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+  fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:276',message:'Trading loop completed all tickers in batch',data:{accountId,resultsCount:results.length,results:results.map(r=>({ticker:r.ticker,status:r.status,reason:r.reason,action:r.action})),nextBatchStart,predictionStats},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
   // #endregion
 
   try {

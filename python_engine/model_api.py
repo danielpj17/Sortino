@@ -134,14 +134,55 @@ def predict():
         action, _ = MODEL.predict(obs, deterministic=True)
         action_code = int(action[0])
         action_type = "BUY" if action_code == 1 else "SELL"
+        
+        # Get action probabilities for more insight
+        buy_prob = None
+        sell_prob = None
+        try:
+            # Get the policy's action distribution
+            import torch
+            obs_tensor = MODEL.policy.obs_to_tensor(obs)[0]
+            distribution = MODEL.policy.get_distribution(obs_tensor)
+            # For discrete action space, get probabilities
+            if hasattr(distribution.distribution, 'probs'):
+                action_probs = distribution.distribution.probs.detach().cpu().numpy()
+                if len(action_probs.shape) > 1:
+                    action_probs = action_probs[0]  # Take first batch element
+                buy_prob = float(action_probs[1]) if len(action_probs) > 1 else 0.0
+                sell_prob = float(action_probs[0]) if len(action_probs) > 0 else 0.0
+            elif hasattr(distribution.distribution, 'logits'):
+                # If using logits, convert to probabilities
+                logits = distribution.distribution.logits.detach().cpu().numpy()
+                if len(logits.shape) > 1:
+                    logits = logits[0]
+                import numpy as np
+                probs = np.exp(logits) / np.sum(np.exp(logits))
+                buy_prob = float(probs[1]) if len(probs) > 1 else 0.0
+                sell_prob = float(probs[0]) if len(probs) > 0 else 0.0
+        except Exception as e:
+            # If we can't get probabilities, log the error but continue
+            print(f"Could not get action probabilities: {e}")
+            import traceback
+            traceback.print_exc()
+        
         close = df["Close"].iloc[-1]
         price = float(close.iloc[0] if isinstance(close, pd.Series) else close)
+        
+        # Calculate some basic market indicators for context
+        recent_prices = df["Close"].tail(10).values
+        price_change_pct = ((recent_prices[-1] - recent_prices[0]) / recent_prices[0]) * 100 if len(recent_prices) > 0 else 0
+        volatility = float(df["Close"].tail(10).std()) if len(df) >= 10 else 0
 
         return jsonify({
             "ticker": ticker,
             "action": action_type,
             "action_code": action_code,
             "price": price,
+            "buy_probability": buy_prob,
+            "sell_probability": sell_prob,
+            "price_change_10d_pct": round(price_change_pct, 2),
+            "volatility_10d": round(volatility, 2),
+            "data_points": len(df),
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
