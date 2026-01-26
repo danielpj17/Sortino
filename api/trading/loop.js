@@ -16,21 +16,45 @@ const STRATEGY_NAME = 'Dow30-Swing-Sortino';
 const MODEL_API_URL = process.env.MODEL_API_URL || 'http://localhost:5000';
 
 /**
- * Market hours: 9:30 AM - 4:00 PM ET.
- * MDT/MST: 7:30 AM - 2:00 PM (UTC-6).
+ * Market hours: 9:30 AM - 4:00 PM ET (Eastern Time).
+ * Uses proper timezone conversion to handle EST (UTC-5) and EDT (UTC-4) automatically.
  */
 function isMarketOpen() {
   const now = new Date();
-  const utc = now.getTime() + now.getTimezoneOffset() * 60000;
-  const mdt = new Date(utc + -6 * 3600000);
-  const hour = mdt.getHours();
-  const min = mdt.getMinutes();
-  const day = mdt.getDay();
+  
+  // Get all ET time components using Intl API (handles DST automatically)
+  const etDateString = now.toLocaleString('en-US', {
+    timeZone: 'America/New_York',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+    weekday: 'short'
+  });
+  
+  // Parse: "Mon, 01/26/2026, 13:45:00"
+  const parts = etDateString.split(', ');
+  const weekday = parts[0]; // "Mon", "Tue", etc.
+  const datePart = parts[1]; // "01/26/2026"
+  const timePart = parts[2]; // "13:45:00"
+  
+  const [month, day, year] = datePart.split('/');
+  const [hour, minute] = timePart.split(':');
+  
+  const hourNum = parseInt(hour, 10);
+  const minuteNum = parseInt(minute, 10);
 
-  if (day === 0 || day === 6) return false;
-  if (hour < 7) return false;
-  if (hour === 7 && min < 30) return false;
-  if (hour >= 14) return false;
+  // Market is closed on weekends
+  if (weekday === 'Sat' || weekday === 'Sun') return false;
+  
+  // Market hours: 9:30 AM - 4:00 PM ET
+  if (hourNum < 9) return false;
+  if (hourNum === 9 && minuteNum < 30) return false;
+  if (hourNum >= 16) return false;
+  
   return true;
 }
 
@@ -127,8 +151,17 @@ export async function executeTradingLoop(accountId) {
   // #endregion
   
   const marketOpen = isMarketOpen();
+  // Get current ET time for logging
+  const etTimeString = new Date().toLocaleString('en-US', {
+    timeZone: 'America/New_York',
+    hour12: false,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    weekday: 'short'
+  });
   // #region agent log
-  fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:114',message:'Market hours check',data:{accountId,marketOpen,now:new Date().toISOString()},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+  fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:114',message:'Market hours check',data:{accountId,marketOpen,now:new Date().toISOString(),etTime:etTimeString},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
   // #endregion
   
   if (!marketOpen) {
