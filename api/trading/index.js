@@ -9,15 +9,16 @@ import { getPool } from '../db.js';
 import { executeTradingLoop } from './loop.js';
 
 export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  try {
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-  if (req.method === 'OPTIONS') {
-    res.status(200).end();
-    return;
-  }
+    if (req.method === 'OPTIONS') {
+      res.status(200).end();
+      return;
+    }
 
   if (req.method === 'GET') {
     // Handle health-check endpoint (merged from trading/health-check.js)
@@ -362,10 +363,12 @@ export default async function handler(req, res) {
       }
     }
   } catch (e) {
+    // Top-level error handler to prevent crashes
     console.error(`[trading] Route error for account ${accountId || 'unknown'}:`, e);
     return res.status(500).json({ 
       error: e.message || 'Internal server error',
       account_id: accountId,
+      message: 'An error occurred processing the request'
     });
   }
 }

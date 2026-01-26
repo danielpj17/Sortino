@@ -243,7 +243,7 @@ export async function executeTradingLoop(accountId) {
         continue;
       }
 
-      // Store prediction in database for analysis
+      // Store prediction in database for analysis (optional - table may not exist)
       try {
         await pool.query(
           `INSERT INTO model_predictions 
@@ -264,8 +264,12 @@ export async function executeTradingLoop(accountId) {
           ]
         );
       } catch (predErr) {
-        // If table doesn't exist, log but continue
-        console.warn(`[loop] Could not store prediction for ${ticker}:`, predErr.message);
+        // If table doesn't exist or query fails, log but continue (don't crash)
+        // This is optional functionality for analysis
+        if (predErr.message && !predErr.message.includes('relation "model_predictions" does not exist')) {
+          console.warn(`[loop] Could not store prediction for ${ticker}:`, predErr.message);
+        }
+        // Silently ignore if table doesn't exist - it's optional
       }
 
       const actionType = pred.action || (pred.action_code === 1 ? 'BUY' : 'SELL');
@@ -317,25 +321,25 @@ export async function executeTradingLoop(accountId) {
             // #region agent log
             fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:207',message:'Trade executed: covered short',data:{accountId,ticker,qty:closeQty},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
             // #endregion
-            // Update prediction record with trade execution
+            // Update prediction record with trade execution (optional - table may not exist)
             try {
               const tradeResult = await pool.query('SELECT id FROM trades WHERE ticker = $1 AND account_id = $2 ORDER BY timestamp DESC LIMIT 1', [ticker, accountId]);
               if (tradeResult.rows.length > 0) {
                 await pool.query('UPDATE model_predictions SET was_executed = TRUE, trade_id = $1, skip_reason = NULL WHERE ticker = $2 AND account_id = $3 AND timestamp > NOW() - INTERVAL \'1 minute\' ORDER BY timestamp DESC LIMIT 1', [tradeResult.rows[0].id, ticker, accountId]);
               }
             } catch (updateErr) {
-              // Ignore update errors
+              // Silently ignore - table may not exist, this is optional
             }
             results.push({ ticker, action: 'BUY', qty: closeQty, status: 'covered_short' });
           } else {
             // #region agent log
             fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:209',message:'Skipped: already long',data:{accountId,ticker},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
             // #endregion
-            // Update prediction record with skip reason
+            // Update prediction record with skip reason (optional - table may not exist)
             try {
               await pool.query('UPDATE model_predictions SET skip_reason = $1 WHERE ticker = $2 AND account_id = $3 AND timestamp > NOW() - INTERVAL \'1 minute\' ORDER BY timestamp DESC LIMIT 1', ['already_long', ticker, accountId]);
             } catch (updateErr) {
-              // Ignore update errors
+              // Silently ignore - table may not exist, this is optional
             }
             results.push({ ticker, action: 'BUY', status: 'skip', reason: 'already_long' });
           }
@@ -360,14 +364,14 @@ export async function executeTradingLoop(accountId) {
           // #region agent log
           fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:226',message:'Trade executed: BUY filled',data:{accountId,ticker,qty},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
           // #endregion
-          // Update prediction record with trade execution
+          // Update prediction record with trade execution (optional - table may not exist)
           try {
             const tradeResult = await pool.query('SELECT id FROM trades WHERE ticker = $1 AND account_id = $2 ORDER BY timestamp DESC LIMIT 1', [ticker, accountId]);
             if (tradeResult.rows.length > 0) {
               await pool.query('UPDATE model_predictions SET was_executed = TRUE, trade_id = $1, skip_reason = NULL WHERE ticker = $2 AND account_id = $3 AND timestamp > NOW() - INTERVAL \'1 minute\' ORDER BY timestamp DESC LIMIT 1', [tradeResult.rows[0].id, ticker, accountId]);
             }
           } catch (updateErr) {
-            // Ignore update errors
+            // Silently ignore - table may not exist, this is optional
           }
           results.push({ ticker, action: 'BUY', qty, status: 'filled' });
         }
@@ -429,11 +433,11 @@ export async function executeTradingLoop(accountId) {
             // #region agent log
             fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:268',message:'Skipped: SELL with no position, shorting disabled',data:{accountId,ticker,allowShorting},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
             // #endregion
-            // Update prediction record with skip reason
+            // Update prediction record with skip reason (optional - table may not exist)
             try {
               await pool.query('UPDATE model_predictions SET skip_reason = $1 WHERE ticker = $2 AND account_id = $3 AND timestamp > NOW() - INTERVAL \'1 minute\' ORDER BY timestamp DESC LIMIT 1', ['shorting_disabled', ticker, accountId]);
             } catch (updateErr) {
-              // Ignore update errors
+              // Silently ignore - table may not exist, this is optional
             }
             results.push({ ticker, action: 'SELL', status: 'skip', reason: 'shorting_disabled' });
           }
