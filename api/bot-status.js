@@ -1,5 +1,6 @@
 import { getPool } from './db.js';
 import { safeLogError } from './safeLog.js';
+import { decrypt } from './encryption.js';
 
 export default async function handler(req, res) {
   // Enable CORS
@@ -74,7 +75,10 @@ export default async function handler(req, res) {
           COALESCE(bot_name, 'ALPHA-01') as bot_name,
           COALESCE(account_type_display, 'CASH') as account_type_display,
           COALESCE(strategy_name, 'Sortino''s Model') as strategy_name,
-          COALESCE(allow_shorting, FALSE) as allow_shorting
+          COALESCE(allow_shorting, FALSE) as allow_shorting,
+          api_key,
+          secret_key,
+          type
         FROM accounts
         WHERE id = $1
       `;
@@ -100,6 +104,10 @@ export default async function handler(req, res) {
       let apiError = null;
       try {
         if (account.api_key && account.secret_key) {
+          // Decrypt the API keys before using them
+          const decryptedApiKey = decrypt(account.api_key);
+          const decryptedSecretKey = decrypt(account.secret_key);
+          
           const baseUrl = account.type === 'Paper' 
             ? 'https://paper-api.alpaca.markets' 
             : 'https://api.alpaca.markets';
@@ -110,8 +118,8 @@ export default async function handler(req, res) {
           try {
             const response = await fetch(`${baseUrl}/v2/account`, {
               headers: {
-                'APCA-API-KEY-ID': account.api_key,
-                'APCA-API-SECRET-KEY': account.secret_key
+                'APCA-API-KEY-ID': decryptedApiKey,
+                'APCA-API-SECRET-KEY': decryptedSecretKey
               },
               signal: controller.signal
             });
@@ -262,6 +270,10 @@ export default async function handler(req, res) {
         apiStatus = 'DISCONNECTED';
         apiError = 'API credentials missing';
       } else {
+        // Decrypt the API keys before using them
+        const decryptedApiKey = decrypt(account.api_key);
+        const decryptedSecretKey = decrypt(account.secret_key);
+        
         const baseUrl = account.type === 'Paper' 
           ? 'https://paper-api.alpaca.markets' 
           : 'https://api.alpaca.markets';
@@ -273,8 +285,8 @@ export default async function handler(req, res) {
         try {
           const response = await fetch(`${baseUrl}/v2/account`, {
             headers: {
-              'APCA-API-KEY-ID': account.api_key,
-              'APCA-API-SECRET-KEY': account.secret_key
+              'APCA-API-KEY-ID': decryptedApiKey,
+              'APCA-API-SECRET-KEY': decryptedSecretKey
             },
             signal: controller.signal
           });
