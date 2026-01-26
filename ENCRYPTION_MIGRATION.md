@@ -30,11 +30,12 @@ The application has been upgraded to use production-level encryption for API key
 - Updated notice message to reflect production-level encryption
 
 ### 6. Python Engine (`python_engine/trade.py`)
-- Updated to fetch decrypted credentials from API endpoint
+- Updated to fetch decrypted credentials from `/api/accounts?decrypt=true` endpoint
 - Falls back to database query (with warning) if API is unavailable
 
-### 7. Internal API Endpoint (`api/account-credentials-endpoint.js`)
-- Endpoint for internal services to get decrypted credentials
+### 7. Internal API Endpoint (merged into `api/accounts.js`)
+- Added `?decrypt=true` query parameter to `/api/accounts` for internal services
+- Returns decrypted credentials when requested with proper authentication
 - Only accessible from localhost or with authentication token
 
 ## Environment Variables
@@ -87,7 +88,7 @@ The application has been upgraded to use production-level encryption for API key
 
 2. **Database Access**: Ensure your database connection is secure (SSL/TLS).
 
-3. **Internal API Endpoint**: The `/api/account-credentials` endpoint should only be accessible from localhost or with proper authentication in production.
+3. **Internal API Endpoint**: The `/api/accounts?decrypt=true` endpoint should only be accessible from localhost or with proper authentication in production.
 
 4. **Backward Compatibility**: The system will attempt to decrypt existing keys. If decryption fails, it assumes the key is plaintext (for migration purposes).
 
@@ -103,7 +104,8 @@ The application has been upgraded to use production-level encryption for API key
 ### Python Engine Can't Access Accounts
 - Check that `API_BASE_URL` is set correctly
 - Verify the API server is running
-- Check that the internal API endpoint is accessible from the Python engine's location
+- Check that `/api/accounts?decrypt=true` endpoint is accessible from the Python engine's location
+- Ensure the request is coming from localhost or includes proper authentication token
 
 ### Decryption Errors
 - Verify `ENCRYPTION_KEY` is set correctly

@@ -1,5 +1,6 @@
 import { getPool } from './db.js';
 import { encrypt } from './encryption.js';
+import { getDecryptedAccount, getAllDecryptedAccounts } from './account-credentials.js';
 
 export default async function handler(req, res) {
   // Enable CORS
@@ -21,7 +22,38 @@ export default async function handler(req, res) {
   const pool = getPool();
 
   // Handle GET - list all accounts (never return encrypted keys to frontend)
+  // Special case: if ?decrypt=true is provided, return decrypted credentials (internal use only)
   if (req.method === 'GET') {
+    // Check if this is a request for decrypted credentials (internal use)
+    const { decrypt: wantDecrypted, account_id } = req.query;
+    
+    if (wantDecrypted === 'true') {
+      // Security: Only allow from localhost or with proper authentication
+      const clientIp = req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || req.socket.remoteAddress;
+      const isLocalhost = clientIp === '127.0.0.1' || clientIp === '::1' || clientIp === 'localhost' || !clientIp;
+      
+      if (!isLocalhost && process.env.NODE_ENV === 'production') {
+        const authToken = req.headers['authorization'];
+        if (authToken !== `Bearer ${process.env.INTERNAL_API_TOKEN}`) {
+          return res.status(403).json({ error: 'Forbidden' });
+        }
+      }
+      
+      try {
+        if (account_id) {
+          const account = await getDecryptedAccount(account_id);
+          return res.status(200).json(account);
+        } else {
+          const accounts = await getAllDecryptedAccounts();
+          return res.status(200).json(accounts);
+        }
+      } catch (err) {
+        console.error('[accounts] GET decrypted error:', err);
+        return res.status(500).json({ error: err.message || 'Internal server error' });
+      }
+    }
+    
+    // Normal GET - return account metadata only (no keys)
     try {
       const result = await pool.query(`
         SELECT id, name, type, created_at

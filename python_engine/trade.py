@@ -107,7 +107,7 @@ def fetch_accounts(conn):
     # This endpoint should only be accessible from localhost
     api_url = os.getenv("API_BASE_URL", "http://localhost:3001")
     try:
-        response = requests.get(f"{api_url}/api/account-credentials", timeout=5)
+        response = requests.get(f"{api_url}/api/accounts?decrypt=true", timeout=5)
         if response.status_code == 200:
             accounts = response.json()
             # Convert to tuple format expected by the rest of the code
