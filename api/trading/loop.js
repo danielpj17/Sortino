@@ -460,7 +460,7 @@ export async function executeTradingLoop(accountId) {
     skipped: results.filter(r => r.status === 'skip').length,
     executed: results.filter(r => r.status !== 'skip' && r.status !== 'error').length,
     errors: results.filter(r => r.status === 'error').length,
-    skipReasons: {} as Record<string, number>
+    skipReasons: {}
   };
   results.forEach(r => {
     if (r.status === 'skip' && r.reason) {
