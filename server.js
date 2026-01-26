@@ -12,6 +12,7 @@ import statsHandler from './api/stats.js';
 import tradesHandler from './api/trades.js';
 import accountsHandler from './api/accounts.js';
 import tradingHandler from './api/trading/index.js';
+import accountCredentialsHandler from './api/account-credentials-endpoint.js';
 
 dotenv.config();
 
@@ -49,6 +50,9 @@ app.get('/api/bot-status', wrap(botStatusHandler));
 app.post('/api/bot-status', wrap(botStatusHandler));
 app.get('/api/market-prices', wrap(marketPricesHandler));
 app.get('/api/accounts', wrap(accountsHandler));
+app.post('/api/accounts', wrap(accountsHandler));
+app.delete('/api/accounts', wrap(accountsHandler));
+app.get('/api/account-credentials', wrap(accountCredentialsHandler));
 app.get('/api/trading', wrap(tradingHandler));
 app.post('/api/trading', wrap(tradingHandler));
 

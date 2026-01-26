@@ -38,57 +38,32 @@ const LiveTrading: React.FC = () => {
   const [marketPrices, setMarketPrices] = useState<Record<string, number>>({});
   const accountDropdownRef = useRef<HTMLDivElement>(null);
 
-  // Load accounts from localStorage (same as Settings) and listen for changes
+  // Load accounts from database (same as Settings) and listen for changes
   useEffect(() => {
-    const STORAGE_KEY_LIVE = 'sortino_live_accounts';
-    
-    const loadAccounts = () => {
+    const loadAccounts = async () => {
       try {
-        const saved = localStorage.getItem(STORAGE_KEY_LIVE);
-        if (saved) {
-          const liveAccounts = JSON.parse(saved);
-          setAccounts(Array.isArray(liveAccounts) ? liveAccounts : []);
-        } else {
-          // Fallback to database API if localStorage is empty (for backward compatibility)
-          const fetchAccounts = async () => {
-            try {
-              const res = await fetch('/api/accounts');
-              if (res.ok) {
-                const data = await res.json();
-                const liveAccounts = Array.isArray(data) ? data.filter((a: any) => a.type === 'Live') : [];
-                setAccounts(liveAccounts);
-              }
-            } catch (error) {
-              console.error("Failed to fetch accounts", error);
-            }
-          };
-          fetchAccounts();
+        const res = await fetch('/api/accounts');
+        if (res.ok) {
+          const data = await res.json();
+          const dbAccounts = Array.isArray(data) ? data.filter((a: any) => a.type === 'Live') : [];
+          setAccounts(dbAccounts);
         }
       } catch (error) {
-        console.error("Failed to load accounts from localStorage", error);
+        console.error("Failed to fetch accounts from database:", error);
       }
     };
 
     // Load accounts on mount
     loadAccounts();
 
-    // Listen for storage changes (when Settings updates accounts in another tab)
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === STORAGE_KEY_LIVE) {
-        loadAccounts();
-      }
-    };
-
-    // Listen for focus events (when user switches back to this tab)
+    // Reload accounts when window regains focus (in case accounts were updated in another tab)
     const handleFocus = () => {
       loadAccounts();
     };
 
-    window.addEventListener('storage', handleStorageChange);
     window.addEventListener('focus', handleFocus);
 
     return () => {
-      window.removeEventListener('storage', handleStorageChange);
       window.removeEventListener('focus', handleFocus);
     };
   }, []);

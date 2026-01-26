@@ -98,7 +98,38 @@ def get_db():
 
 
 def fetch_accounts(conn):
-    """Fetch accounts with bot settings: id, api_key, secret_key, type, allow_shorting, max_position_size."""
+    """Fetch accounts with bot settings: id, api_key, secret_key, type, allow_shorting, max_position_size.
+    Now fetches decrypted credentials from the API endpoint instead of directly from database.
+    """
+    import requests
+    
+    # Get decrypted credentials from API endpoint
+    # This endpoint should only be accessible from localhost
+    api_url = os.getenv("API_BASE_URL", "http://localhost:3001")
+    try:
+        response = requests.get(f"{api_url}/api/account-credentials", timeout=5)
+        if response.status_code == 200:
+            accounts = response.json()
+            # Convert to tuple format expected by the rest of the code
+            # Format: (id, api_key, secret_key, type, allow_shorting, max_position_size)
+            rows = []
+            for acc in accounts:
+                rows.append((
+                    acc['id'],
+                    acc['api_key'],
+                    acc['secret_key'],
+                    acc['type'],
+                    acc.get('allow_shorting', False),
+                    float(acc.get('max_position_size', 0.40))
+                ))
+            return rows
+        else:
+            print(f"Warning: Failed to fetch accounts from API (status {response.status_code}), falling back to database")
+    except Exception as e:
+        print(f"Warning: Failed to fetch accounts from API ({e}), falling back to database")
+    
+    # Fallback: query database directly (keys will be encrypted, so this won't work)
+    # This is only for backward compatibility during migration
     cur = conn.cursor()
     cur.execute("""
         SELECT id, api_key, secret_key, type,
@@ -108,6 +139,7 @@ def fetch_accounts(conn):
     """)
     rows = cur.fetchall()
     cur.close()
+    print("WARNING: Using encrypted keys from database. Update API_BASE_URL to use decrypted credentials.")
     return rows
 
 

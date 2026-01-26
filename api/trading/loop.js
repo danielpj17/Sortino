@@ -4,6 +4,7 @@
  */
 
 import { getPool } from '../db.js';
+import { getDecryptedAccount } from '../account-credentials.js';
 
 const DOW_30 = [
   'AXP', 'AMGN', 'AAPL', 'BA', 'CAT', 'CSCO', 'CVX', 'GS', 'HD', 'HON',
@@ -128,19 +129,8 @@ export async function executeTradingLoop(accountId) {
 
   const pool = getPool();
 
-  const accountResult = await pool.query(
-    `SELECT id, name, api_key, secret_key, type,
-            COALESCE(allow_shorting, FALSE) AS allow_shorting,
-            COALESCE(CAST(max_position_size AS FLOAT), 0.4) AS max_position_size
-     FROM accounts WHERE id = $1`,
-    [accountId]
-  );
-
-  if (accountResult.rows.length === 0) {
-    throw new Error(`Account ${accountId} not found`);
-  }
-
-  const acc = accountResult.rows[0];
+  // Get account with decrypted credentials
+  const acc = await getDecryptedAccount(accountId);
   const baseUrl = String(acc.type).toLowerCase() === 'paper'
     ? 'https://paper-api.alpaca.markets'
     : 'https://api.alpaca.markets';

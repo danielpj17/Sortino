@@ -1,5 +1,23 @@
 -- SQL Schema for QuantAI Platform (Neon Serverless Postgres)
 
+-- Accounts table: stores Alpaca API credentials and bot settings
+CREATE TABLE IF NOT EXISTS accounts (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL CHECK (type IN ('Paper', 'Live')),
+    api_key TEXT NOT NULL,
+    secret_key TEXT NOT NULL,
+    allow_shorting BOOLEAN NOT NULL DEFAULT FALSE,
+    max_position_size DECIMAL(5, 4) NOT NULL DEFAULT 0.40,
+    bot_name TEXT DEFAULT 'ALPHA-01',
+    account_type_display TEXT DEFAULT 'CASH',
+    strategy_name TEXT DEFAULT 'Sortino''s Model',
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Index for faster lookups
+CREATE INDEX IF NOT EXISTS idx_accounts_type ON accounts(type);
+
 -- Migration: Add bot settings to accounts (run after accounts table exists)
 -- max_position_size 0.40 = 40% of equity per position.
 ALTER TABLE accounts ADD COLUMN IF NOT EXISTS allow_shorting BOOLEAN NOT NULL DEFAULT FALSE;
@@ -7,6 +25,7 @@ ALTER TABLE accounts ADD COLUMN IF NOT EXISTS max_position_size DECIMAL(5, 4) NO
 ALTER TABLE accounts ADD COLUMN IF NOT EXISTS bot_name TEXT DEFAULT 'ALPHA-01';
 ALTER TABLE accounts ADD COLUMN IF NOT EXISTS account_type_display TEXT DEFAULT 'CASH';
 ALTER TABLE accounts ADD COLUMN IF NOT EXISTS strategy_name TEXT DEFAULT 'Sortino''s Model';
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
 
 CREATE TABLE IF NOT EXISTS trades (
     id SERIAL PRIMARY KEY,
@@ -19,7 +38,7 @@ CREATE TABLE IF NOT EXISTS trades (
     pnl DECIMAL(18, 4) DEFAULT 0.00,
     company_name TEXT,
     sell_trade_id INTEGER REFERENCES trades(id),
-    account_id INTEGER REFERENCES accounts(id),
+    account_id TEXT REFERENCES accounts(id),
     experience_id INTEGER
 );
 
@@ -30,7 +49,8 @@ CREATE INDEX idx_trades_account_id ON trades(account_id);
 CREATE INDEX idx_trades_experience_id ON trades(experience_id);
 
 -- Ensure account_id column exists (migration for existing tables)
-ALTER TABLE trades ADD COLUMN IF NOT EXISTS account_id INTEGER REFERENCES accounts(id);
+-- Note: If account_id already exists as INTEGER, you'll need to manually migrate the data
+ALTER TABLE trades ADD COLUMN IF NOT EXISTS account_id TEXT REFERENCES accounts(id);
 ALTER TABLE trades ADD COLUMN IF NOT EXISTS experience_id INTEGER;
 
 -- Training experiences table: stores observations, actions, and rewards for RL training
@@ -38,7 +58,7 @@ CREATE TABLE IF NOT EXISTS training_experiences (
     id SERIAL PRIMARY KEY,
     timestamp TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     ticker TEXT NOT NULL,
-    account_id INTEGER REFERENCES accounts(id),
+    account_id TEXT REFERENCES accounts(id),
     observation JSONB NOT NULL,  -- Store market state (OHLCV window)
     action INTEGER NOT NULL,  -- 0 = HOLD/SELL, 1 = BUY
     reward DECIMAL(18, 6),  -- Calculated reward (NULL if trade not completed)

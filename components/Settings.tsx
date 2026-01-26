@@ -13,21 +13,10 @@ import {
 } from 'lucide-react';
 import { Account, AccountType } from '../types';
 
-// STORAGE KEYS for persistence
-const STORAGE_KEY_PAPER = 'sortino_paper_accounts';
-const STORAGE_KEY_LIVE = 'sortino_live_accounts';
-
 const Settings: React.FC = () => {
-  // Initialize state from LocalStorage if available, otherwise default to empty array
-  const [paperAccounts, setPaperAccounts] = useState<Account[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEY_PAPER);
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  const [liveAccounts, setLiveAccounts] = useState<Account[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEY_LIVE);
-    return saved ? JSON.parse(saved) : [];
-  });
+  // Initialize state from database (no localStorage)
+  const [paperAccounts, setPaperAccounts] = useState<Account[]>([]);
+  const [liveAccounts, setLiveAccounts] = useState<Account[]>([]);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalType, setModalType] = useState<AccountType>('Paper');
@@ -37,50 +26,108 @@ const Settings: React.FC = () => {
   const [newApiKey, setNewApiKey] = useState('');
   const [newSecretKey, setNewSecretKey] = useState('');
 
-  // Save to LocalStorage whenever accounts change
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY_PAPER, JSON.stringify(paperAccounts));
-  }, [paperAccounts]);
+  // Load accounts from database on mount and when accounts change
+  const loadAccounts = async () => {
+    try {
+      const res = await fetch('/api/accounts');
+      if (res.ok) {
+        const dbAccounts = await res.json();
+        if (Array.isArray(dbAccounts)) {
+          // Transform database accounts to match Account interface
+          const transformedAccounts: Account[] = dbAccounts.map((acc: any) => ({
+            id: acc.id,
+            name: acc.name,
+            type: acc.type as AccountType,
+            apiKey: '***', // Masked for security (actual keys encrypted in DB)
+            status: 'Connected', // Will be checked by bot-status API
+            createdAt: acc.created_at ? new Date(acc.created_at).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]
+          }));
+
+          const paper = transformedAccounts.filter(a => a.type === 'Paper');
+          const live = transformedAccounts.filter(a => a.type === 'Live');
+
+          setPaperAccounts(paper);
+          setLiveAccounts(live);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load accounts from database:', error);
+    }
+  };
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY_LIVE, JSON.stringify(liveAccounts));
-  }, [liveAccounts]);
+    loadAccounts();
+  }, []);
 
   const openAddModal = (type: AccountType) => {
     setModalType(type);
     setIsModalOpen(true);
   };
 
-  const handleAddAccount = (e: React.FormEvent) => {
+  const handleAddAccount = async (e: React.FormEvent) => {
     e.preventDefault();
-    const newAccount: Account = {
-      id: `${modalType.toLowerCase()}-${Date.now()}`,
-      name: newAccountName,
-      type: modalType,
-      // We store the masked key for display, but in a real app you'd send the full key to your backend
-      apiKey: `${newApiKey.substring(0, 4)}...${newApiKey.substring(newApiKey.length - 4)}`,
-      status: 'Connected', // Assume connected for now
-      createdAt: new Date().toISOString().split('T')[0]
-    };
-
-    if (modalType === 'Paper') {
-      setPaperAccounts([...paperAccounts, newAccount]);
-    } else {
-      setLiveAccounts([...liveAccounts, newAccount]);
+    
+    if (!newAccountName || !newApiKey || !newSecretKey) {
+      alert('Please fill in all fields');
+      return;
     }
 
-    // Reset and close
-    setNewAccountName('');
-    setNewApiKey('');
-    setNewSecretKey('');
-    setIsModalOpen(false);
+    const accountId = `${modalType.toLowerCase()}-${Date.now()}`;
+    
+    try {
+      // Save to database first
+      const response = await fetch('/api/accounts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: accountId,
+          name: newAccountName,
+          type: modalType,
+          api_key: newApiKey,
+          secret_key: newSecretKey,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || 'Failed to save account to database');
+      }
+
+      // Reload accounts from database
+      await loadAccounts();
+
+      // Reset and close
+      setNewAccountName('');
+      setNewApiKey('');
+      setNewSecretKey('');
+      setIsModalOpen(false);
+    } catch (error) {
+      console.error('Failed to add account:', error);
+      alert(error instanceof Error ? error.message : 'Failed to add account. Please try again.');
+    }
   };
 
-  const deleteAccount = (id: string, type: AccountType) => {
-    if (type === 'Paper') {
-      setPaperAccounts(paperAccounts.filter(a => a.id !== id));
-    } else {
-      setLiveAccounts(liveAccounts.filter(a => a.id !== id));
+  const deleteAccount = async (id: string, type: AccountType) => {
+    if (!confirm(`Are you sure you want to delete this ${type} account?`)) {
+      return;
+    }
+
+    try {
+      // Delete from database
+      const response = await fetch(`/api/accounts?id=${id}`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || 'Failed to delete account from database');
+      }
+
+      // Reload accounts from database
+      await loadAccounts();
+    } catch (error) {
+      console.error('Failed to delete account:', error);
+      alert(error instanceof Error ? error.message : 'Failed to delete account. Please try again.');
     }
   };
 
@@ -122,7 +169,7 @@ const Settings: React.FC = () => {
           <div className="space-y-1">
             <h3 className="text-sm font-bold text-zinc-200">API Connectivity Notice</h3>
             <p className="text-xs text-zinc-500 leading-relaxed max-w-2xl">
-              All accounts use the Alpaca Markets API. Keys are currently stored locally in your browser for demonstration purposes. In a production environment, these would be encrypted and stored in your Postgres database.
+              All accounts use the Alpaca Markets API. API keys are encrypted using AES-256-GCM and stored securely in your Postgres database. Accounts are accessible from any device connected to your database.
             </p>
           </div>
         </div>
@@ -213,7 +260,7 @@ interface SectionProps {
   accounts: Account[];
   type: AccountType;
   onAdd: () => void;
-  onDelete: (id: string) => void;
+  onDelete: (id: string, type: AccountType) => void;
   icon: React.ReactNode;
 }
 
@@ -272,7 +319,7 @@ const AccountSection: React.FC<SectionProps> = ({ title, description, accounts, 
                 <div className="flex items-center justify-between pt-4 border-t border-zinc-800/50">
                   <div className="flex items-center gap-2 text-zinc-500">
                     <Key size={12} />
-                    <code className="text-[10px] font-mono font-bold tracking-widest">{acc.apiKey}</code>
+                    <code className="text-[10px] font-mono font-bold tracking-widest">{acc.apiKey || '***'}</code>
                   </div>
                   <div className="flex items-center gap-2">
                     <button className="p-2 text-zinc-500 hover:text-zinc-200 transition-colors" title="External Dashboard">

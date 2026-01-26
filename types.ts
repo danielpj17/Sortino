@@ -32,7 +32,7 @@ export interface Account {
   id: string;
   name: string;
   type: AccountType;
-  apiKey: string;
+  apiKey?: string;  // Optional - not returned by API for security
   status: 'Connected' | 'Error' | 'Inactive';
   createdAt: string;
 }

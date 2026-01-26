@@ -38,57 +38,32 @@ const PaperTrading: React.FC = () => {
   const [marketPrices, setMarketPrices] = useState<Record<string, number>>({});
   const accountDropdownRef = useRef<HTMLDivElement>(null);
 
-  // Load accounts from localStorage (same as Settings) and listen for changes
+  // Load accounts from database (accounts must exist in DB for bot to work)
   useEffect(() => {
-    const STORAGE_KEY_PAPER = 'sortino_paper_accounts';
-    
-    const loadAccounts = () => {
+    const loadAccounts = async () => {
       try {
-        const saved = localStorage.getItem(STORAGE_KEY_PAPER);
-        if (saved) {
-          const paperAccounts = JSON.parse(saved);
-          setAccounts(Array.isArray(paperAccounts) ? paperAccounts : []);
-        } else {
-          // Fallback to database API if localStorage is empty (for backward compatibility)
-          const fetchAccounts = async () => {
-            try {
-              const res = await fetch('/api/accounts');
-              if (res.ok) {
-                const data = await res.json();
-                const paperAccounts = Array.isArray(data) ? data.filter((a: any) => a.type === 'Paper') : [];
-                setAccounts(paperAccounts);
-              }
-            } catch (error) {
-              console.error("Failed to fetch accounts", error);
-            }
-          };
-          fetchAccounts();
+        const res = await fetch('/api/accounts');
+        if (res.ok) {
+          const data = await res.json();
+          const dbAccounts = Array.isArray(data) ? data.filter((a: any) => a.type === 'Paper') : [];
+          setAccounts(dbAccounts);
         }
       } catch (error) {
-        console.error("Failed to load accounts from localStorage", error);
+        console.error("Failed to fetch accounts from database:", error);
       }
     };
 
     // Load accounts on mount
     loadAccounts();
 
-    // Listen for storage changes (when Settings updates accounts in another tab)
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === STORAGE_KEY_PAPER) {
-        loadAccounts();
-      }
-    };
-
-    // Listen for focus events (when user switches back to this tab)
+    // Reload accounts when window regains focus (in case accounts were updated in another tab)
     const handleFocus = () => {
       loadAccounts();
     };
 
-    window.addEventListener('storage', handleStorageChange);
     window.addEventListener('focus', handleFocus);
 
     return () => {
-      window.removeEventListener('storage', handleStorageChange);
       window.removeEventListener('focus', handleFocus);
     };
   }, []);
@@ -321,63 +296,79 @@ const PaperTrading: React.FC = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-1">
-          <BotTile
-            accountId={selectedAccountId}
-            onStartBot={async () => {
-              if (!selectedAccountId) {
-                alert('Please select an account first');
-                return;
-              }
-              const res = await fetch('/api/trading', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ account_id: selectedAccountId, action: 'start' }),
-              });
-              if (!res.ok) {
-                const err = await res.json().catch(() => ({}));
-                throw new Error(err.error || 'Failed to start bot');
-              }
-            }}
-            onStopBot={async () => {
-              if (!selectedAccountId) {
-                alert('Please select an account first');
-                return;
-              }
-              const res = await fetch('/api/trading', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ account_id: selectedAccountId, action: 'stop' }),
-              });
-              if (!res.ok) {
-                const err = await res.json().catch(() => ({}));
-                throw new Error(err.error || 'Failed to stop bot');
-              }
-            }}
-            onViewLogs={async () => {
-              if (!selectedAccountId) {
-                alert('Please select an account first');
-                return;
-              }
-              try {
-                const res = await fetch(`/api/trading?account_id=${selectedAccountId}`);
-                if (res.ok) {
-                  const data = await res.json();
-                  const logs = [
-                    `Bot Status: ${data.is_running ? 'RUNNING' : 'STOPPED'}`,
-                    `Always On: ${data.always_on ? 'YES' : 'NO'}`,
-                    `Last Heartbeat: ${data.last_heartbeat || 'Never'}`,
-                    `Last Error: ${data.last_error || 'None'}`,
-                    `Updated: ${data.updated_at || 'Never'}`,
-                  ].join('\n');
-                  alert(logs);
-                } else {
-                  alert('Failed to fetch bot logs');
+          {!selectedAccountId && accounts.length > 0 ? (
+            <div className="bg-[#181818] border border-zinc-800 rounded-2xl p-6 shadow-sm">
+              <div className="text-center space-y-3">
+                <p className="text-sm font-bold text-zinc-300">Select an Account</p>
+                <p className="text-xs text-zinc-500">Please select an account from the dropdown above to view bot status and start trading.</p>
+              </div>
+            </div>
+          ) : !selectedAccountId && accounts.length === 0 ? (
+            <div className="bg-[#181818] border border-zinc-800 rounded-2xl p-6 shadow-sm">
+              <div className="text-center space-y-3">
+                <p className="text-sm font-bold text-zinc-300">No Accounts Found</p>
+                <p className="text-xs text-zinc-500">Add a Paper Trading account in Settings to get started.</p>
+              </div>
+            </div>
+          ) : (
+            <BotTile
+              accountId={selectedAccountId}
+              onStartBot={async () => {
+                if (!selectedAccountId) {
+                  alert('Please select an account first');
+                  return;
                 }
-              } catch (error) {
-                alert('Error fetching bot logs: ' + (error instanceof Error ? error.message : 'Unknown error'));
-              }
-            }}
-          />
+                const res = await fetch('/api/trading', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ account_id: selectedAccountId, action: 'start' }),
+                });
+                if (!res.ok) {
+                  const err = await res.json().catch(() => ({}));
+                  throw new Error(err.error || 'Failed to start bot');
+                }
+              }}
+              onStopBot={async () => {
+                if (!selectedAccountId) {
+                  alert('Please select an account first');
+                  return;
+                }
+                const res = await fetch('/api/trading', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ account_id: selectedAccountId, action: 'stop' }),
+                });
+                if (!res.ok) {
+                  const err = await res.json().catch(() => ({}));
+                  throw new Error(err.error || 'Failed to stop bot');
+                }
+              }}
+              onViewLogs={async () => {
+                if (!selectedAccountId) {
+                  alert('Please select an account first');
+                  return;
+                }
+                try {
+                  const res = await fetch(`/api/trading?account_id=${selectedAccountId}`);
+                  if (res.ok) {
+                    const data = await res.json();
+                    const logs = [
+                      `Bot Status: ${data.is_running ? 'RUNNING' : 'STOPPED'}`,
+                      `Always On: ${data.always_on ? 'YES' : 'NO'}`,
+                      `Last Heartbeat: ${data.last_heartbeat || 'Never'}`,
+                      `Last Error: ${data.last_error || 'None'}`,
+                      `Updated: ${data.updated_at || 'Never'}`,
+                    ].join('\n');
+                    alert(logs);
+                  } else {
+                    alert('Failed to fetch bot logs');
+                  }
+                } catch (error) {
+                  alert('Error fetching bot logs: ' + (error instanceof Error ? error.message : 'Unknown error'));
+                }
+              }}
+            />
+          )}
         </div>
         <div className="lg:col-span-2 bg-[#181818] rounded-2xl p-6 border border-zinc-800">
           <PortfolioChart type="Paper" accountId={selectedAccountId} currentEquity={portfolioEquity} />

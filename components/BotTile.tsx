@@ -15,7 +15,8 @@ const BotTile: React.FC<BotTileProps> = ({ accountId, onStartBot, onStopBot, onV
     bot_name: 'ALPHA-01',
     account_type_display: 'CASH',
     strategy_name: "Sortino's Model",
-    api_status: 'CONNECTED'
+    api_status: 'CONNECTED',
+    api_error: null as string | null
   });
   const [isRunning, setIsRunning] = useState(false);
   const [botActionLoading, setBotActionLoading] = useState(false);
@@ -115,9 +116,16 @@ const BotTile: React.FC<BotTileProps> = ({ accountId, onStartBot, onStopBot, onV
         
         <div className="flex items-center justify-between">
           <span className="text-xs font-bold text-zinc-500 uppercase tracking-widest">API</span>
-          <span className={`text-sm font-bold ${botStatus.api_status === 'CONNECTED' ? 'text-emerald-400' : 'text-rose-400'}`}>
-            {botStatus.api_status}
-          </span>
+          <div className="flex flex-col items-end">
+            <span className={`text-sm font-bold ${botStatus.api_status === 'CONNECTED' ? 'text-emerald-400' : 'text-rose-400'}`}>
+              {botStatus.api_status}
+            </span>
+            {botStatus.api_error && botStatus.api_status === 'DISCONNECTED' && (
+              <span className="text-[9px] text-rose-400/70 mt-0.5" title={botStatus.api_error}>
+                {botStatus.api_error.length > 20 ? botStatus.api_error.substring(0, 20) + '...' : botStatus.api_error}
+              </span>
+            )}
+          </div>
         </div>
         
         <div className="flex items-center justify-between">

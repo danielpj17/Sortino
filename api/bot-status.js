@@ -95,13 +95,65 @@ export default async function handler(req, res) {
         account.allow_shorting = allow_shorting || false;
       }
 
+      // Check API status for POST as well
+      let apiStatus = 'CONNECTED';
+      let apiError = null;
+      try {
+        if (account.api_key && account.secret_key) {
+          const baseUrl = account.type === 'Paper' 
+            ? 'https://paper-api.alpaca.markets' 
+            : 'https://api.alpaca.markets';
+          
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 5000);
+          
+          try {
+            const response = await fetch(`${baseUrl}/v2/account`, {
+              headers: {
+                'APCA-API-KEY-ID': account.api_key,
+                'APCA-API-SECRET-KEY': account.secret_key
+              },
+              signal: controller.signal
+            });
+            
+            clearTimeout(timeoutId);
+            
+            if (!response.ok) {
+              apiStatus = 'DISCONNECTED';
+              if (response.status === 401) {
+                apiError = 'Invalid API credentials';
+              } else if (response.status === 403) {
+                apiError = 'API access forbidden';
+              } else {
+                apiError = `API error: ${response.status}`;
+              }
+            }
+          } catch (fetchErr) {
+            clearTimeout(timeoutId);
+            if (fetchErr.name === 'AbortError') {
+              apiStatus = 'DISCONNECTED';
+              apiError = 'Connection timeout';
+            } else {
+              throw fetchErr;
+            }
+          }
+        } else {
+          apiStatus = 'DISCONNECTED';
+          apiError = 'API credentials missing';
+        }
+      } catch (err) {
+        apiStatus = 'DISCONNECTED';
+        apiError = err.message || 'Connection failed';
+      }
+
       res.status(200).json({
         account_name: account.name || 'STANDARD STRATEGY',
         bot_name: account.bot_name,
         account_type_display: account.account_type_display,
         strategy_name: account.strategy_name,
         allow_shorting: account.allow_shorting,
-        api_status: 'CONNECTED' // Could check API status here if needed
+        api_status: apiStatus,
+        api_error: apiError || null
       });
     } catch (err) {
       safeLogError('Database error (POST):', err);
@@ -171,6 +223,19 @@ export default async function handler(req, res) {
     }
     
     if (result.rows.length === 0) {
+      // If account_id was provided but not found, return a more specific message
+      if (account_id) {
+        return res.status(404).json({
+          account_name: 'Account Not Found',
+          bot_name: 'ALPHA-01',
+          account_type_display: 'CASH',
+          strategy_name: "Sortino's Model",
+          allow_shorting: false,
+          api_status: 'DISCONNECTED',
+          error: `Account with ID "${account_id}" not found in database. Please add it in Settings.`
+        });
+      }
+      // No account_id provided and no accounts in database
       return res.status(200).json({
         account_name: 'STANDARD STRATEGY',
         bot_name: 'ALPHA-01',
@@ -191,28 +256,55 @@ export default async function handler(req, res) {
     
     // Check API status by attempting to connect to Alpaca
     let apiStatus = 'CONNECTED';
+    let apiError = null;
     try {
-      if (account.api_key && account.secret_key) {
+      if (!account.api_key || !account.secret_key) {
+        apiStatus = 'DISCONNECTED';
+        apiError = 'API credentials missing';
+      } else {
         const baseUrl = account.type === 'Paper' 
           ? 'https://paper-api.alpaca.markets' 
           : 'https://api.alpaca.markets';
         
-        // Test connection using fetch
-        const response = await fetch(`${baseUrl}/v2/account`, {
-          headers: {
-            'APCA-API-KEY-ID': account.api_key,
-            'APCA-API-SECRET-KEY': account.secret_key
-          }
-        });
+        // Test connection using fetch with timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
         
-        if (!response.ok) {
-          apiStatus = 'DISCONNECTED';
+        try {
+          const response = await fetch(`${baseUrl}/v2/account`, {
+            headers: {
+              'APCA-API-KEY-ID': account.api_key,
+              'APCA-API-SECRET-KEY': account.secret_key
+            },
+            signal: controller.signal
+          });
+          
+          clearTimeout(timeoutId);
+          
+          if (!response.ok) {
+            apiStatus = 'DISCONNECTED';
+            if (response.status === 401) {
+              apiError = 'Invalid API credentials';
+            } else if (response.status === 403) {
+              apiError = 'API access forbidden';
+            } else {
+              apiError = `API error: ${response.status}`;
+            }
+          }
+        } catch (fetchErr) {
+          clearTimeout(timeoutId);
+          if (fetchErr.name === 'AbortError') {
+            apiStatus = 'DISCONNECTED';
+            apiError = 'Connection timeout';
+          } else {
+            throw fetchErr;
+          }
         }
-      } else {
-        apiStatus = 'DISCONNECTED';
       }
     } catch (err) {
       apiStatus = 'DISCONNECTED';
+      apiError = err.message || 'Connection failed';
+      safeLogError('API status check error:', err);
     }
 
     res.status(200).json({
@@ -221,7 +313,8 @@ export default async function handler(req, res) {
       account_type_display: account_type_display,
       strategy_name: strategy_name,
       allow_shorting: allow_shorting,
-      api_status: apiStatus
+      api_status: apiStatus,
+      api_error: apiError || null
     });
   } catch (err) {
     safeLogError('Database error (GET):', err);
