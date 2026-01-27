@@ -15,6 +15,10 @@ const DOW_30 = [
 const STRATEGY_NAME = 'Dow30-Swing-Sortino';
 const MODEL_API_URL = process.env.MODEL_API_URL || 'http://localhost:5000';
 
+// #region agent log
+fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:16',message:'MODEL_API_URL initialized',data:{modelApiUrl:MODEL_API_URL,envVarSet:!!process.env.MODEL_API_URL,isLocalhost:MODEL_API_URL.includes('localhost')},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+// #endregion
+
 // Warn if MODEL_API_URL is not configured (will fail on Vercel)
 if (!process.env.MODEL_API_URL || MODEL_API_URL.includes('localhost')) {
   console.warn('[trading] WARNING: MODEL_API_URL not configured or using localhost. Model predictions will fail on Vercel.');
@@ -65,35 +69,46 @@ function isMarketOpen() {
 }
 
 async function getModelPrediction(ticker) {
+  const requestUrl = `${MODEL_API_URL}/predict`;
+  // #region agent log
+  fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:67',message:'Model API request start',data:{ticker,modelApiUrl:MODEL_API_URL,requestUrl,envVarSet:!!process.env.MODEL_API_URL},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+  // #endregion
+  
   try {
-    // #region agent log
-    fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:37',message:'Model API request start',data:{ticker,modelApiUrl:MODEL_API_URL},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-    // #endregion
-    
     // Add timeout to prevent hanging (10 seconds max per prediction)
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000);
     
-    const res = await fetch(`${MODEL_API_URL}/predict`, {
+    const startTime = Date.now();
+    const res = await fetch(requestUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ticker, period: '1mo' }),
       signal: controller.signal,
     });
+    const duration = Date.now() - startTime;
     
     clearTimeout(timeoutId);
     // #region agent log
-    fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:45',message:'Model API response',data:{ticker,status:res.status,ok:res.ok},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+    fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:85',message:'Model API response received',data:{ticker,status:res.status,ok:res.ok,statusText:res.statusText,durationMs:duration},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
     // #endregion
-    if (!res.ok) throw new Error(`Model API ${res.status}`);
+    
+    if (!res.ok) {
+      const errorText = await res.text().catch(() => '');
+      // #region agent log
+      fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:90',message:'Model API non-OK response',data:{ticker,status:res.status,statusText:res.statusText,errorText},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+      // #endregion
+      throw new Error(`Model API ${res.status}: ${errorText || res.statusText}`);
+    }
+    
     const data = await res.json();
     // #region agent log
-    fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:48',message:'Model API data parsed',data:{ticker,hasData:!!data,error:data?.error},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+    fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:95',message:'Model API data parsed successfully',data:{ticker,hasData:!!data,hasError:!!data?.error,action:data?.action,actionCode:data?.action_code},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
     // #endregion
     return data;
   } catch (e) {
     // #region agent log
-    fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:50',message:'Model API error',data:{ticker,error:e.message,modelApiUrl:MODEL_API_URL,isTimeout:e.name==='AbortError'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+    fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:100',message:'Model API error caught',data:{ticker,errorName:e.name,errorMessage:e.message,errorStack:e.stack?.substring(0,200),modelApiUrl:MODEL_API_URL,requestUrl,isTimeout:e.name==='AbortError',isNetworkError:e.message?.includes('fetch')||e.message?.includes('network')||e.message?.includes('ECONNREFUSED')||e.message?.includes('ENOTFOUND')},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
     // #endregion
     if (e.name === 'AbortError') {
       console.error(`Model prediction ${ticker}: Timeout after 10 seconds`);
