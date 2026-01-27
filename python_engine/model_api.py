@@ -8,6 +8,7 @@ Endpoints:
 """
 
 import os
+import sys
 import numpy as np
 import pandas as pd
 import yfinance as yf
@@ -104,7 +105,14 @@ def root():
 
 @app.route("/health", methods=["GET"])
 def health():
-    return jsonify({"status": "ok", "model_loaded": MODEL is not None})
+    """Health check endpoint - always returns 200, even if model not loaded."""
+    model_file_exists = os.path.isfile(os.path.join(MODEL_DIR, "dow30_model.zip"))
+    return jsonify({
+        "status": "ok",
+        "model_loaded": MODEL is not None,
+        "model_file_exists": model_file_exists,
+        "service": "Sortino Model API"
+    })
 
 
 @app.route("/predict", methods=["POST"])
@@ -189,10 +197,31 @@ def predict():
 
 
 if __name__ == "__main__":
+    print("=" * 50)
+    print("Starting Sortino Model API...")
+    print(f"Python version: {sys.version}")
+    print(f"Working directory: {os.getcwd()}")
+    print(f"Model directory: {MODEL_DIR}")
+    print(f"Model file exists: {os.path.isfile(os.path.join(MODEL_DIR, 'dow30_model.zip'))}")
+    print("=" * 50)
+    
     print("Loading model...")
-    if load_model():
-        print("Model loaded.")
-    else:
-        print("Warning: model not loaded.")
+    try:
+        if load_model():
+            print("✅ Model loaded successfully.")
+        else:
+            print("⚠️  Warning: model not loaded. API will return 503 for /predict.")
+    except Exception as e:
+        print(f"❌ Error loading model: {e}")
+        import traceback
+        traceback.print_exc()
+    
     port = int(os.getenv("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    print(f"Starting Flask app on port {port}...")
+    try:
+        app.run(host="0.0.0.0", port=port, debug=False)
+    except Exception as e:
+        print(f"❌ Failed to start Flask app: {e}")
+        import traceback
+        traceback.print_exc()
+        raise

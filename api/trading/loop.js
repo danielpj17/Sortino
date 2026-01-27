@@ -15,6 +15,12 @@ const DOW_30 = [
 const STRATEGY_NAME = 'Dow30-Swing-Sortino';
 const MODEL_API_URL = process.env.MODEL_API_URL || 'http://localhost:5000';
 
+// Warn if MODEL_API_URL is not configured (will fail on Vercel)
+if (!process.env.MODEL_API_URL || MODEL_API_URL.includes('localhost')) {
+  console.warn('[trading] WARNING: MODEL_API_URL not configured or using localhost. Model predictions will fail on Vercel.');
+  console.warn('[trading] Set MODEL_API_URL in Vercel environment variables to your deployed Model API URL.');
+}
+
 /**
  * Market hours: 9:30 AM - 4:00 PM ET (Eastern Time).
  * Uses proper timezone conversion to handle EST (UTC-5) and EDT (UTC-4) automatically.
@@ -288,7 +294,7 @@ export async function executeTradingLoop(accountId) {
   }
 
   // #region agent log
-  fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:195',message:'Starting ticker loop (batched)',data:{accountId,modelApiUrl:MODEL_API_URL,totalTickers:DOW_30.length,batchStart,tickersInBatch:tickersToProcess.length,nextBatchStart},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+  fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:195',message:'Starting ticker loop (batched)',data:{accountId,modelApiUrl:MODEL_API_URL,isLocalhost:MODEL_API_URL.includes('localhost'),totalTickers:DOW_30.length,batchStart,tickersInBatch:tickersToProcess.length,nextBatchStart},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
   // #endregion
 
   for (const ticker of tickersToProcess) {
@@ -300,10 +306,14 @@ export async function executeTradingLoop(accountId) {
       const pred = await getModelPrediction(ticker);
       
       // #region agent log
-      fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:171',message:'Model prediction received',data:{accountId,ticker,hasPrediction:!!pred,error:pred?.error,action:pred?.action,actionCode:pred?.action_code,price:pred?.price,buyProb:pred?.buy_probability,sellProb:pred?.sell_probability,priceChange10d:pred?.price_change_10d_pct,volatility10d:pred?.volatility_10d,dataPoints:pred?.data_points},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+      fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:171',message:'Model prediction received',data:{accountId,ticker,hasPrediction:!!pred,error:pred?.error,action:pred?.action,actionCode:pred?.action_code,price:pred?.price,buyProb:pred?.buy_probability,sellProb:pred?.sell_probability,priceChange10d:pred?.price_change_10d_pct,volatility10d:pred?.volatility_10d,dataPoints:pred?.data_points,modelApiUrl:MODEL_API_URL},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
       // #endregion
       
       if (!pred || pred.error) {
+        const reason = pred?.error ? `no_prediction: ${pred.error}` : (MODEL_API_URL === 'http://localhost:5000' ? 'no_prediction: MODEL_API_URL not configured' : 'no_prediction: API call failed');
+        // #region agent log
+        fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:177',message:'Model prediction failed',data:{accountId,ticker,reason,predError:pred?.error,modelApiUrl:MODEL_API_URL,isLocalhost:MODEL_API_URL.includes('localhost')},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+        // #endregion
         results.push({ ticker, status: 'skip', reason: 'no_prediction' });
         continue;
       }
