@@ -136,3 +136,8 @@ CREATE INDEX IF NOT EXISTS idx_model_predictions_ticker ON model_predictions(tic
 CREATE INDEX IF NOT EXISTS idx_model_predictions_timestamp ON model_predictions(timestamp);
 CREATE INDEX IF NOT EXISTS idx_model_predictions_account_id ON model_predictions(account_id);
 CREATE INDEX IF NOT EXISTS idx_model_predictions_action ON model_predictions(action_code);
+
+-- Migration: Add smoothed probability columns for decision layer smoothing
+ALTER TABLE model_predictions ADD COLUMN IF NOT EXISTS smoothed_buy_probability DECIMAL(5, 4);
+ALTER TABLE model_predictions ADD COLUMN IF NOT EXISTS smoothed_sell_probability DECIMAL(5, 4);
+ALTER TABLE model_predictions ADD COLUMN IF NOT EXISTS final_action_code INTEGER;

@@ -27,11 +27,19 @@ NEON_DATABASE_URL = os.getenv("DATABASE_URL")
 # Sortino-style reward: penalize downside volatility heavily.
 DOWNSIDE_PENALTY_FACTOR = 2.0   # multiply negative rewards (e.g. x2)
 DOWNSIDE_SQUARED = True         # square magnitude for heavier penalty on large losses
+OPPORTUNITY_COST_PENALTY = -0.001  # Penalty for staying flat/in cash
 
 def _sortino_reward(raw_reward: float) -> float:
-    """Apply Sortino principle: heavy penalty for negative returns."""
-    if raw_reward >= 0:
+    """Apply Sortino principle: heavy penalty for negative returns and opportunity cost for staying flat."""
+    # Opportunity cost: penalize staying in cash (raw_reward === 0.0)
+    if raw_reward == 0.0:
+        return OPPORTUNITY_COST_PENALTY
+    
+    # Positive rewards unchanged
+    if raw_reward > 0:
         return raw_reward
+    
+    # Negative rewards: apply downside penalty
     mag = abs(raw_reward)
     if DOWNSIDE_SQUARED:
         return -(DOWNSIDE_PENALTY_FACTOR * (mag ** 2))

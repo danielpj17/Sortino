@@ -15,6 +15,16 @@ const DOW_30 = [
 const STRATEGY_NAME = 'Dow30-Swing-Sortino';
 const MODEL_API_URL = process.env.MODEL_API_URL || 'http://localhost:5000';
 
+// Decision Layer Smoothing Constants
+const ROLLING_WINDOW_SIZE = 10;  // Number of predictions to average
+const CONFIDENCE_THRESHOLD = 0.65;  // Minimum probability to execute
+const DEAD_ZONE_LOW = 0.35;  // Lower bound of dead zone
+const DEAD_ZONE_HIGH = 0.65;  // Upper bound of dead zone
+const BUY_BIAS_THRESHOLD = 0.05;  // 5% difference threshold for buy bias
+
+// Rolling window storage: Map<ticker, {buyProbs: number[], sellProbs: number[]}>
+const rollingWindows = new Map();
+
 // #region agent log
 fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:16',message:'MODEL_API_URL initialized',data:{modelApiUrl:MODEL_API_URL,envVarSet:!!process.env.MODEL_API_URL,isLocalhost:MODEL_API_URL.includes('localhost')},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
 // #endregion
@@ -66,6 +76,82 @@ function isMarketOpen() {
   if (hourNum >= 16) return false;
   
   return true;
+}
+
+/**
+ * Apply decision layer smoothing using rolling window averages and hysteresis thresholds.
+ * @param {string} ticker - Stock ticker symbol
+ * @param {number} rawBuyProb - Raw buy probability from model
+ * @param {number} rawSellProb - Raw sell probability from model
+ * @param {boolean} hasPosition - Whether we currently hold a long position
+ * @returns {{action: string, actionCode: number, smoothedBuyProb: number, smoothedSellProb: number}}
+ */
+function applyDecisionSmoothing(ticker, rawBuyProb, rawSellProb, hasPosition) {
+  // Initialize rolling window for ticker if it doesn't exist
+  if (!rollingWindows.has(ticker)) {
+    rollingWindows.set(ticker, { buyProbs: [], sellProbs: [] });
+  }
+  
+  const window = rollingWindows.get(ticker);
+  
+  // Add new probabilities to rolling window
+  window.buyProbs.push(rawBuyProb || 0);
+  window.sellProbs.push(rawSellProb || 0);
+  
+  // Maintain window size (keep last ROLLING_WINDOW_SIZE values)
+  if (window.buyProbs.length > ROLLING_WINDOW_SIZE) {
+    window.buyProbs.shift();
+  }
+  if (window.sellProbs.length > ROLLING_WINDOW_SIZE) {
+    window.sellProbs.shift();
+  }
+  
+  // Calculate rolling averages
+  const smoothedBuyProb = window.buyProbs.reduce((a, b) => a + b, 0) / window.buyProbs.length;
+  const smoothedSellProb = window.sellProbs.reduce((a, b) => a + b, 0) / window.sellProbs.length;
+  
+  // Check if probabilities are in dead zone
+  const buyInDeadZone = smoothedBuyProb >= DEAD_ZONE_LOW && smoothedBuyProb <= DEAD_ZONE_HIGH;
+  const sellInDeadZone = smoothedSellProb >= DEAD_ZONE_LOW && smoothedSellProb <= DEAD_ZONE_HIGH;
+  
+  // Apply buy bias: if probabilities are within 5% of each other, favor BUY
+  const probDiff = Math.abs(smoothedBuyProb - smoothedSellProb);
+  const shouldApplyBuyBias = probDiff <= BUY_BIAS_THRESHOLD;
+  
+  // Decision logic with hysteresis thresholds
+  let action = 'HOLD';
+  let actionCode = 0; // 0 = HOLD/SELL, 1 = BUY
+  
+  // BUY: Only if rolling avg buy_prob > CONFIDENCE_THRESHOLD
+  if (smoothedBuyProb > CONFIDENCE_THRESHOLD) {
+    // Apply buy bias if probabilities are close
+    if (shouldApplyBuyBias || smoothedBuyProb > smoothedSellProb) {
+      action = 'BUY';
+      actionCode = 1;
+    }
+  }
+  
+  // SELL: Only if rolling avg sell_prob > CONFIDENCE_THRESHOLD AND we hold a long position
+  if (smoothedSellProb > CONFIDENCE_THRESHOLD && hasPosition) {
+    // Only override BUY if sell probability is significantly higher
+    if (smoothedSellProb > smoothedBuyProb + BUY_BIAS_THRESHOLD) {
+      action = 'SELL';
+      actionCode = 0;
+    }
+  }
+  
+  // If both are in dead zone, default to HOLD (maintain current position)
+  if (buyInDeadZone && sellInDeadZone) {
+    action = 'HOLD';
+    actionCode = hasPosition ? 0 : 0; // Keep current position
+  }
+  
+  return {
+    action,
+    actionCode,
+    smoothedBuyProb,
+    smoothedSellProb
+  };
 }
 
 async function getModelPrediction(ticker) {
@@ -333,24 +419,42 @@ export async function executeTradingLoop(accountId) {
         continue;
       }
 
+      // Get current position before applying smoothing (needed for decision logic)
+      const pos = await getPosition(acc.api_key, acc.secret_key, baseUrl, ticker);
+      const side = pos ? String(pos.side).toLowerCase() : null;
+      const hasPosition = side === 'long';
+
+      // Apply decision layer smoothing
+      const rawBuyProb = pred.buy_probability || 0;
+      const rawSellProb = pred.sell_probability || 0;
+      const smoothed = applyDecisionSmoothing(ticker, rawBuyProb, rawSellProb, hasPosition);
+      
+      // Use smoothed decision instead of raw prediction
+      const actionType = smoothed.action;
+      const finalActionCode = smoothed.actionCode;
+
       // Store prediction in database for analysis (optional - table may not exist)
       try {
         await pool.query(
           `INSERT INTO model_predictions 
            (ticker, account_id, action_code, action_type, price, buy_probability, sell_probability, 
-            price_change_10d_pct, volatility_10d, data_points)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+            price_change_10d_pct, volatility_10d, data_points,
+            smoothed_buy_probability, smoothed_sell_probability, final_action_code)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
           [
             ticker,
             accountId,
-            pred.action_code,
-            pred.action,
+            pred.action_code,  // Raw action code
+            pred.action,  // Raw action type
             pred.price,
-            pred.buy_probability || null,
-            pred.sell_probability || null,
+            pred.buy_probability || null,  // Raw buy probability
+            pred.sell_probability || null,  // Raw sell probability
             pred.price_change_10d_pct || null,
             pred.volatility_10d || null,
-            pred.data_points || null
+            pred.data_points || null,
+            smoothed.smoothedBuyProb,  // Smoothed buy probability
+            smoothed.smoothedSellProb,  // Smoothed sell probability
+            finalActionCode  // Final action code after smoothing
           ]
         );
       } catch (predErr) {
@@ -361,8 +465,6 @@ export async function executeTradingLoop(accountId) {
         }
         // Silently ignore if table doesn't exist - it's optional
       }
-
-      const actionType = pred.action || (pred.action_code === 1 ? 'BUY' : 'SELL');
       const price = parseFloat(pred.price);
       if (!price || price <= 0) {
         results.push({ ticker, status: 'skip', reason: 'invalid_price' });
@@ -379,13 +481,25 @@ export async function executeTradingLoop(accountId) {
         results.push({ ticker, status: 'skip', reason: 'no_size' });
         continue;
       }
-
-      const pos = await getPosition(acc.api_key, acc.secret_key, baseUrl, ticker);
-      const side = pos ? String(pos.side).toLowerCase() : null;
       
       // #region agent log
-      fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:189',message:'Position check',data:{accountId,ticker,actionType,hasPosition:!!pos,side,qty,allowShorting},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+      fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:189',message:'Position check',data:{accountId,ticker,actionType,hasPosition:!!pos,side,qty,allowShorting,rawBuyProb,rawSellProb,smoothedBuyProb:smoothed.smoothedBuyProb,smoothedSellProb:smoothed.smoothedSellProb},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
       // #endregion
+
+      // Handle HOLD action: maintain current position, do nothing
+      if (actionType === 'HOLD') {
+        // #region agent log
+        fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:hold',message:'HOLD action: maintaining position',data:{accountId,ticker,hasPosition,side},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+        // #endregion
+        // Update prediction record with skip reason (optional - table may not exist)
+        try {
+          await pool.query('UPDATE model_predictions SET skip_reason = $1 WHERE ticker = $2 AND account_id = $3 AND timestamp > NOW() - INTERVAL \'1 minute\' ORDER BY timestamp DESC LIMIT 1', ['hold_action', ticker, accountId]);
+        } catch (updateErr) {
+          // Silently ignore - table may not exist, this is optional
+        }
+        results.push({ ticker, action: 'HOLD', status: 'skip', reason: 'hold_action' });
+        continue;
+      }
 
       if (actionType === 'BUY') {
         if (pos) {

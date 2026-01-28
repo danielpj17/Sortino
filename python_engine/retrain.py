@@ -41,6 +41,7 @@ if not NEON_DATABASE_URL:
 # Sortino reward parameters (must match train.py)
 DOWNSIDE_PENALTY_FACTOR = 2.0
 DOWNSIDE_SQUARED = True
+OPPORTUNITY_COST_PENALTY = -0.001  # Penalty for staying flat/in cash
 
 # DOW 30 tickers
 DOW_30 = [
