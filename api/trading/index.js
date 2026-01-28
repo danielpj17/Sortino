@@ -87,10 +87,19 @@ export default async function handler(req, res) {
           }
         }
 
+        // Add diagnostic info about MODEL_API_URL (safe to expose - no secrets)
+        const MODEL_API_URL = process.env.MODEL_API_URL || 'http://localhost:5000';
+        const diagnostics = {
+          model_api_url_configured: !!process.env.MODEL_API_URL,
+          model_api_url: MODEL_API_URL,
+          model_api_url_is_localhost: MODEL_API_URL.includes('localhost'),
+        };
+        
         return res.status(200).json({
           status: 'ok',
           bots_processed: rows.length,
           results,
+          diagnostics, // Add diagnostic info
         });
       } catch (e) {
         console.error('[trading] Health check fatal error:', e);
