@@ -163,7 +163,7 @@ def predict():
                 logits = distribution.distribution.logits.detach().cpu().numpy()
                 if len(logits.shape) > 1:
                     logits = logits[0]
-                import numpy as np
+                # np is already imported at the top of the file
                 probs = np.exp(logits) / np.sum(np.exp(logits))
                 buy_prob = float(probs[1]) if len(probs) > 1 else 0.0
                 sell_prob = float(probs[0]) if len(probs) > 0 else 0.0
