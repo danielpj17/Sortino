@@ -9,6 +9,9 @@ Endpoints:
 
 import os
 import sys
+import json
+import time
+import traceback
 import numpy as np
 import pandas as pd
 import yfinance as yf
@@ -19,6 +22,19 @@ from stable_baselines3.common.vec_env import DummyVecEnv
 from gym_anytrading.envs import StocksEnv
 import gymnasium as gym
 from dotenv import load_dotenv
+
+# region agent log
+def _debug_log(location: str, message: str, data: dict, hypothesis_id: str = "A"):
+    _log_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".cursor")
+    _log_path = os.path.join(_log_dir, "debug.log")
+    try:
+        os.makedirs(_log_dir, exist_ok=True)
+        payload = {"location": location, "message": message, "data": {k: str(v) if not isinstance(v, (int, float, bool, str, type(None))) else v for k, v in data.items()}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": hypothesis_id}
+        with open(_log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(payload) + "\n")
+    except Exception:
+        pass
+# endregion
 
 for _d in [
     os.path.join(os.path.dirname(__file__), ".."),
@@ -121,28 +137,54 @@ def predict():
         data = request.get_json() or {}
         ticker = (data.get("ticker") or "").strip().upper()
         period = data.get("period") or "1mo"
+        # region agent log
+        _debug_log("model_api.py:predict", "predict_entry", {"ticker": ticker or "(empty)", "period": period}, "H1")
+        # endregion
         if not ticker:
             return jsonify({"error": "ticker required"}), 400
 
         if MODEL is None:
             return jsonify({"error": "model not loaded"}), 503
 
+        # region agent log
+        _debug_log("model_api.py:predict", "before_download", {"ticker": ticker, "period": period}, "H1")
+        # endregion
         raw = yf.download(ticker, period=period, interval="1d", progress=False)
+        # region agent log
+        _raw_shape = getattr(raw, "shape", None)
+        _raw_cols = list(getattr(raw, "columns", []))[:20] if hasattr(raw, "columns") else []
+        _debug_log("model_api.py:predict", "after_download", {"raw_shape": _raw_shape, "raw_columns": _raw_cols}, "H1")
+        # endregion
         df, err = sanitize_ohlcv(raw)
+        # region agent log
+        _debug_log("model_api.py:predict", "after_sanitize", {"df_len": len(df) if df is not None else 0, "err": err}, "H2")
+        # endregion
         if err or df is None or len(df) < 15:
             return jsonify({"error": "insufficient or invalid data"}), 400
 
         df = df.reset_index(drop=True)
+        # region agent log
+        _debug_log("model_api.py:predict", "before_env", {"df_len": len(df)}, "H3")
+        # endregion
         env = DummyVecEnv([lambda d=df: GymnasiumWrapper(d)])
         raw_obs = env.reset()
         obs = raw_obs[0] if isinstance(raw_obs, (list, tuple)) else raw_obs
         if not isinstance(obs, np.ndarray):
             obs = np.array(obs)
+        # region agent log
+        _debug_log("model_api.py:predict", "after_env_reset", {"obs_shape": getattr(obs, "shape", None), "obs_type": type(obs).__name__}, "H3")
+        # endregion
 
+        # region agent log
+        _debug_log("model_api.py:predict", "before_predict", {"obs_shape": getattr(obs, "shape", None)}, "H4")
+        # endregion
         action, _ = MODEL.predict(obs, deterministic=True)
         action_code = int(action[0])
         action_type = "BUY" if action_code == 1 else "SELL"
-        
+        # region agent log
+        _debug_log("model_api.py:predict", "after_predict", {"action": int(action[0])}, "H4")
+        # endregion
+
         # Get action probabilities for more insight
         buy_prob = None
         sell_prob = None
@@ -170,17 +212,22 @@ def predict():
         except Exception as e:
             # If we can't get probabilities, log the error but continue
             print(f"Could not get action probabilities: {e}")
-            import traceback
             traceback.print_exc()
-        
+
+        # region agent log
+        _debug_log("model_api.py:predict", "before_price_block", {"df_len": len(df)}, "H5")
+        # endregion
         close = df["Close"].iloc[-1]
         price = float(close.iloc[0] if isinstance(close, pd.Series) else close)
-        
+
         # Calculate some basic market indicators for context
         recent_prices = df["Close"].tail(10).values
         price_change_pct = ((recent_prices[-1] - recent_prices[0]) / recent_prices[0]) * 100 if len(recent_prices) > 0 else 0
         volatility = float(df["Close"].tail(10).std()) if len(df) >= 10 else 0
 
+        # region agent log
+        _debug_log("model_api.py:predict", "predict_success", {"ticker": ticker, "action": action_type}, "H5")
+        # endregion
         return jsonify({
             "ticker": ticker,
             "action": action_type,
@@ -193,6 +240,10 @@ def predict():
             "data_points": len(df),
         })
     except Exception as e:
+        # region agent log
+        _tb = traceback.format_exc()
+        _debug_log("model_api.py:predict", "predict_exception", {"exc_type": type(e).__name__, "exc_msg": str(e), "tb": _tb[-2000:] if len(_tb) > 2000 else _tb}, "H_exc")
+        # endregion
         return jsonify({"error": str(e)}), 500
 
 
