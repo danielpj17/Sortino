@@ -14,6 +14,7 @@ import time
 import traceback
 import numpy as np
 import pandas as pd
+import requests
 import yfinance as yf
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -149,7 +150,15 @@ def predict():
         # region agent log
         _debug_log("model_api.py:predict", "before_download", {"ticker": ticker, "period": period}, "H1")
         # endregion
-        raw = yf.download(ticker, period=period, interval="1d", progress=False)
+        _max_attempts = 3
+        for _attempt in range(_max_attempts):
+            try:
+                raw = yf.download(ticker, period=period, interval="1d", progress=False)
+                break
+            except Exception as _e:
+                if _attempt + 1 >= _max_attempts:
+                    raise
+                time.sleep(1 + _attempt)
         # region agent log
         _raw_shape = getattr(raw, "shape", None)
         _raw_cols = list(getattr(raw, "columns", []))[:20] if hasattr(raw, "columns") else []
@@ -244,6 +253,12 @@ def predict():
         _tb = traceback.format_exc()
         _debug_log("model_api.py:predict", "predict_exception", {"exc_type": type(e).__name__, "exc_msg": str(e), "tb": _tb[-2000:] if len(_tb) > 2000 else _tb}, "H_exc")
         # endregion
+        print(f"[predict] Exception: {type(e).__name__}: {e}", flush=True)
+        traceback.print_exc()
+        _conn_like = isinstance(e, (ConnectionError, OSError, requests.exceptions.RequestException))
+        _msg = str(e).lower()
+        if _conn_like or "broken pipe" in _msg or "connection" in _msg or "curl" in _msg or "fetch" in _msg:
+            return jsonify({"error": "Market data temporarily unavailable", "detail": str(e)}), 503
         return jsonify({"error": str(e)}), 500
 
 
@@ -259,11 +274,11 @@ if __name__ == "__main__":
     print("Loading model...")
     try:
         if load_model():
-            print("✅ Model loaded successfully.")
+            print("[OK] Model loaded successfully.")
         else:
-            print("⚠️  Warning: model not loaded. API will return 503 for /predict.")
+            print("[WARN] Model not loaded. API will return 503 for /predict.")
     except Exception as e:
-        print(f"❌ Error loading model: {e}")
+        print(f"[ERROR] Loading model: {e}")
         import traceback
         traceback.print_exc()
     
@@ -272,7 +287,7 @@ if __name__ == "__main__":
     try:
         app.run(host="0.0.0.0", port=port, debug=False)
     except Exception as e:
-        print(f"❌ Failed to start Flask app: {e}")
+        print(f"[ERROR] Failed to start Flask app: {e}")
         import traceback
         traceback.print_exc()
         raise
