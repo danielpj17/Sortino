@@ -97,6 +97,7 @@ CREATE UNIQUE INDEX idx_model_versions_active_unique ON model_versions(is_active
 
 -- Bot state table: tracks which accounts have active trading bots (Heartbeat architecture)
 -- account_id matches accounts.id type (TEXT)
+-- metadata: JSONB for batch_start (ticker rotation) and future extensions
 CREATE TABLE IF NOT EXISTS bot_state (
     id SERIAL PRIMARY KEY,
     account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
@@ -106,8 +107,12 @@ CREATE TABLE IF NOT EXISTS bot_state (
     last_error TEXT,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    metadata JSONB DEFAULT '{}'::jsonb,
     UNIQUE(account_id)
 );
+
+-- Migration: Add metadata if table already exists
+ALTER TABLE bot_state ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'::jsonb;
 
 CREATE INDEX IF NOT EXISTS idx_bot_state_running ON bot_state(is_running);
 CREATE INDEX IF NOT EXISTS idx_bot_state_always_on ON bot_state(always_on);

@@ -82,7 +82,7 @@ python train.py
 ```
 
 ### 5. **Decision Smoothing (Why No Trades Even When Model Says BUY/SELL)**
-The bot uses a smoothing layer: it only executes BUY/SELL when the rolling average probability exceeds **0.65**. If the model returns borderline predictions (e.g. 0.55 buy, 0.45 sell), the result is **HOLD** and no trade executes. This is intentional to reduce false signals. It may take several cron cycles (10–20 minutes) before a trade is executed.
+The bot uses a smoothing layer: it only executes BUY/SELL when the rolling average probability exceeds **0.55**. If the model returns borderline predictions (e.g. 0.50 buy, 0.50 sell), the result is **HOLD** and no trade executes. It may take several cron cycles (10–20 minutes) before a trade is executed.
 
 ### 6. **Cron Not Running**
 The health-check must be pinged every 1–2 minutes. If cron-job.org (or your cron) isn't set up or fails, the trading loop never runs.
