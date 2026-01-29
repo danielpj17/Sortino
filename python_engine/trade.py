@@ -272,8 +272,18 @@ def calculate_trade_reward(buy_price, sell_price, quantity):
 
 def run_analysis_cycle(model, conn, accounts):
     """Run one full analysis pass over DOW_30 and execute per-account."""
+    _log_dir = os.path.join(os.path.dirname(__file__), "..", ".cursor")
+    _log_path = os.path.join(_log_dir, "debug.log")
     for ticker in DOW_30:
         try:
+            # region agent log
+            try:
+                os.makedirs(_log_dir, exist_ok=True)
+                with open(_log_path, "a", encoding="utf-8") as _f:
+                    _f.write(json.dumps({"location": "trade.py:run_analysis_cycle", "message": "before_yf_download", "data": {"ticker": ticker}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "H5"}) + "\n")
+            except Exception:
+                pass
+            # endregion
             data = yf.download(ticker, period="1mo", interval="1d", progress=False)
             df, err = sanitize_ohlcv(data)
             if err is not None:
@@ -465,6 +475,14 @@ def run_analysis_cycle(model, conn, accounts):
 
             cur.close()
         except Exception as e:
+            # region agent log
+            try:
+                _msg = str(e).lower()
+                with open(_log_path, "a", encoding="utf-8") as _f:
+                    _f.write(json.dumps({"location": "trade.py:run_analysis_cycle", "message": "yf_download_exception", "data": {"ticker": ticker, "exc_type": type(e).__name__, "exc_msg": str(e)[:300], "is_timeout": "timeout" in _msg or "curl: (28)" in _msg, "is_conn": "connection" in _msg or "broken pipe" in _msg or "curl: (56)" in _msg or "curl: (55)" in _msg}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "H5"}) + "\n")
+            except Exception:
+                pass
+            # endregion
             debug_log("run_analysis_cycle", str(e), {"ticker": ticker})
             print(f"Skipping {ticker}: {e}")
 

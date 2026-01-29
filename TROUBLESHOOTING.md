@@ -1,5 +1,26 @@
 # Troubleshooting: Bot Running But No Trades
 
+## Run Diagnostics First
+
+**Hit the diagnostics endpoint** to quickly identify the failure point:
+
+```
+GET https://YOUR_VERCEL_APP.vercel.app/api/trading/diagnostics
+```
+
+This returns:
+- `db` – Database connection status
+- `accounts` – Count of accounts in database
+- `bots` – Active bot count, last_heartbeat, last_error
+- `market` – Whether market is open (9:30 AM–4:00 PM ET, Mon–Fri)
+- `model_api` – Model API reachability and model_loaded status
+- `issues` – List of detected problems
+- `next_steps` – Recommended fixes
+
+Fix the issues listed, then redeploy and try again.
+
+---
+
 ## Quick Checklist
 
 ### ✅ Bot Status: RUNNING
@@ -28,8 +49,8 @@ curl https://your-model-api-url/health
 
 ### 2. **Market Hours**
 The bot only trades during market hours:
-- **MDT/MST (Utah):** 7:30 AM - 2:00 PM (Monday-Friday)
 - **ET:** 9:30 AM - 4:00 PM (Monday-Friday)
+- **MDT/MST (Utah):** 7:30 AM - 2:00 PM (Monday-Friday)
 
 **Current time check:**
 - If it's outside market hours, the bot will skip trading and just update heartbeat
@@ -59,6 +80,14 @@ cd python_engine
 pip install -r requirements.txt
 python train.py
 ```
+
+### 5. **Decision Smoothing (Why No Trades Even When Model Says BUY/SELL)**
+The bot uses a smoothing layer: it only executes BUY/SELL when the rolling average probability exceeds **0.65**. If the model returns borderline predictions (e.g. 0.55 buy, 0.45 sell), the result is **HOLD** and no trade executes. This is intentional to reduce false signals. It may take several cron cycles (10–20 minutes) before a trade is executed.
+
+### 6. **Cron Not Running**
+The health-check must be pinged every 1–2 minutes. If cron-job.org (or your cron) isn't set up or fails, the trading loop never runs.
+- Set up cron-job.org to hit: `https://YOUR_APP.vercel.app/api/trading?health-check=true`
+- Schedule: every 1–2 minutes
 
 ## Debugging Steps
 

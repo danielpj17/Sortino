@@ -151,18 +151,39 @@ def predict():
         _debug_log("model_api.py:predict", "before_download", {"ticker": ticker, "period": period}, "H1")
         # endregion
         _max_attempts = 3
+        raw = None
+        _attempt_used = -1
         for _attempt in range(_max_attempts):
+            # region agent log
+            _debug_log("model_api.py:predict", "download_attempt", {"ticker": ticker, "attempt": _attempt + 1, "max_attempts": _max_attempts}, "H1")
+            # endregion
             try:
+                _start = time.time()
                 raw = yf.download(ticker, period=period, interval="1d", progress=False)
+                _duration_ms = int((time.time() - _start) * 1000)
+                _attempt_used = _attempt + 1
+                # region agent log
+                _debug_log("model_api.py:predict", "download_success", {"ticker": ticker, "attempt": _attempt_used, "duration_ms": _duration_ms, "raw_empty": raw is None or (hasattr(raw, "empty") and raw.empty)}, "H2")
+                # endregion
                 break
             except Exception as _e:
+                _msg = str(_e).lower()
+                _is_timeout = "timeout" in _msg or "timed out" in _msg or "curl: (28)" in _msg
+                _is_conn = "connection" in _msg or "broken pipe" in _msg or "curl: (56)" in _msg or "curl: (55)" in _msg
+                # region agent log
+                _debug_log("model_api.py:predict", "download_failed", {"ticker": ticker, "attempt": _attempt + 1, "exc_type": type(_e).__name__, "exc_msg": str(_e)[:300], "is_timeout": _is_timeout, "is_conn_err": _is_conn}, "H3")
+                # endregion
                 if _attempt + 1 >= _max_attempts:
                     raise
-                time.sleep(1 + _attempt)
+                _sleep = 1 + _attempt
+                # region agent log
+                _debug_log("model_api.py:predict", "download_retry_sleep", {"ticker": ticker, "sleep_sec": _sleep}, "H4")
+                # endregion
+                time.sleep(_sleep)
         # region agent log
-        _raw_shape = getattr(raw, "shape", None)
-        _raw_cols = list(getattr(raw, "columns", []))[:20] if hasattr(raw, "columns") else []
-        _debug_log("model_api.py:predict", "after_download", {"raw_shape": _raw_shape, "raw_columns": _raw_cols}, "H1")
+        _raw_shape = getattr(raw, "shape", None) if raw is not None else None
+        _raw_cols = list(getattr(raw, "columns", []))[:20] if raw is not None and hasattr(raw, "columns") else []
+        _debug_log("model_api.py:predict", "after_download", {"raw_shape": _raw_shape, "raw_columns": _raw_cols, "attempt_used": _attempt_used}, "H1")
         # endregion
         df, err = sanitize_ohlcv(raw)
         # region agent log

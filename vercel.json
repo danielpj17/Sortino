@@ -4,12 +4,17 @@
   "framework": "vite",
   "rewrites": [
     {
-      "source": "/((?!api/).*)",
+      "source": "/api/:path*",
+      "destination": "/api/:path*"
+    },
+    {
+      "source": "/(.*)",
       "destination": "/index.html"
     }
   ],
   "functions": {
     "api/trading/index.js": { "maxDuration": 300 },
-    "api/trading/health-check.js": { "maxDuration": 300 }
+    "api/trading/health-check.js": { "maxDuration": 300 },
+    "api/trading/diagnostics.js": { "maxDuration": 30 }
   }
 }
