@@ -3,7 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { getPool } from './api/db.js';
+import { getPool } from './lib/db.js';
 import botStatusHandler from './api/bot-status.js';
 import marketPricesHandler from './api/market-prices.js';
 import statsHandler from './api/stats.js';

@@ -1,5 +1,5 @@
-import { getPool } from './db.js';
-import { safeLogError } from './safeLog.js';
+import { getPool } from '../lib/db.js';
+import { safeLogError } from '../lib/safeLog.js';
 
 // Simple in-memory cache (30 seconds TTL)
 const priceCache = new Map();

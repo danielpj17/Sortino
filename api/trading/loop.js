@@ -3,8 +3,8 @@
  * Fetches predictions from Model API, executes via Alpaca, stores trades in Neon.
  */
 
-import { getPool } from '../db.js';
-import { getDecryptedAccount } from '../account-credentials.js';
+import { getPool } from '../../lib/db.js';
+import { getDecryptedAccount } from '../../lib/account-credentials.js';
 
 const DOW_30 = [
   'AXP', 'AMGN', 'AAPL', 'BA', 'CAT', 'CSCO', 'CVX', 'GS', 'HD', 'HON',

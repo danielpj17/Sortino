@@ -4,7 +4,7 @@
  * Returns: db, accounts, bots, market, model_api, issues, next_steps
  */
 
-import { getPool } from '../db.js';
+import { getPool } from '../../lib/db.js';
 import { isMarketOpen } from './loop.js';
 
 const MODEL_API_URL = process.env.MODEL_API_URL || 'http://localhost:5000';

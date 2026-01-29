@@ -5,7 +5,7 @@
  * POST { account_id, action: 'start'|'stop' } – Start or stop bot; start runs one loop immediately.
  */
 
-import { getPool } from '../db.js';
+import { getPool } from '../../lib/db.js';
 import { executeTradingLoop } from './loop.js';
 
 export default async function handler(req, res) {

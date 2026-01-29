@@ -1,5 +1,5 @@
-import { getPool } from './db.js';
-import { safeLogError } from './safeLog.js';
+import { getPool } from '../lib/db.js';
+import { safeLogError } from '../lib/safeLog.js';
 
 export default async function handler(req, res) {
   // Enable CORS

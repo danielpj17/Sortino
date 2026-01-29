@@ -1,6 +1,6 @@
-import { getPool } from './db.js';
-import { encrypt } from './encryption.js';
-import { getDecryptedAccount, getAllDecryptedAccounts } from './account-credentials.js';
+import { getPool } from '../lib/db.js';
+import { encrypt } from '../lib/encryption.js';
+import { getDecryptedAccount, getAllDecryptedAccounts } from '../lib/account-credentials.js';
 
 export default async function handler(req, res) {
   // Enable CORS
