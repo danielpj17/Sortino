@@ -37,6 +37,7 @@ const PaperTrading: React.FC = () => {
   const [viewMode, setViewMode] = useState<'POSITIONS' | 'COMPLETED'>('POSITIONS');
   const [marketPrices, setMarketPrices] = useState<Record<string, number>>({});
   const accountDropdownRef = useRef<HTMLDivElement>(null);
+  const hasAutoSelectedAccount = useRef(false);
 
   // Load accounts from database (accounts must exist in DB for bot to work)
   useEffect(() => {
@@ -47,6 +48,18 @@ const PaperTrading: React.FC = () => {
           const data = await res.json();
           const dbAccounts = Array.isArray(data) ? data.filter((a: any) => a.type === 'Paper') : [];
           setAccounts(dbAccounts);
+          // Auto-select "ML Model" account on first load (open/refresh)
+          if (!hasAutoSelectedAccount.current && dbAccounts.length > 0) {
+            hasAutoSelectedAccount.current = true;
+            const mlModelAccount = dbAccounts.find((a: any) => 
+              a.name && String(a.name).toLowerCase().includes('ml model')
+            );
+            if (mlModelAccount) {
+              setSelectedAccountId(mlModelAccount.id);
+            } else if (dbAccounts.length === 1) {
+              setSelectedAccountId(dbAccounts[0].id);
+            }
+          }
         }
       } catch (error) {
         console.error("Failed to fetch accounts from database:", error);

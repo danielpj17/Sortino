@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { HashRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
+import { HashRouter as Router, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
 import { 
   LayoutDashboard, 
   History, 
@@ -42,7 +42,7 @@ const App: React.FC = () => {
           </div>
 
           <nav className="flex-1 px-4 py-4 space-y-1">
-            <SidebarItem icon={<LayoutDashboard size={20} />} label="Dashboard" to="/" collapsed={!isSidebarOpen} />
+            <SidebarItem icon={<LayoutDashboard size={20} />} label="Dashboard" to="/dashboard" collapsed={!isSidebarOpen} />
             <SidebarItem icon={<Cpu size={20} />} label="Paper Trading" to="/paper" collapsed={!isSidebarOpen} />
             <SidebarItem icon={<Activity size={20} />} label="Live Trading" to="/live" collapsed={!isSidebarOpen} />
             <SidebarItem icon={<History size={20} />} label="History" to="/history" collapsed={!isSidebarOpen} />
