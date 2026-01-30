@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS accounts (
     max_position_size DECIMAL(5, 4) NOT NULL DEFAULT 0.40,
     bot_name TEXT DEFAULT 'ALPHA-01',
     account_type_display TEXT DEFAULT 'CASH',
-    strategy_name TEXT DEFAULT 'Sortino''s Model',
+    strategy_name TEXT DEFAULT 'Sortino Model',
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -24,7 +24,7 @@ ALTER TABLE accounts ADD COLUMN IF NOT EXISTS allow_shorting BOOLEAN NOT NULL DE
 ALTER TABLE accounts ADD COLUMN IF NOT EXISTS max_position_size DECIMAL(5, 4) NOT NULL DEFAULT 0.40;
 ALTER TABLE accounts ADD COLUMN IF NOT EXISTS bot_name TEXT DEFAULT 'ALPHA-01';
 ALTER TABLE accounts ADD COLUMN IF NOT EXISTS account_type_display TEXT DEFAULT 'CASH';
-ALTER TABLE accounts ADD COLUMN IF NOT EXISTS strategy_name TEXT DEFAULT 'Sortino''s Model';
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS strategy_name TEXT DEFAULT 'Sortino Model';
 ALTER TABLE accounts ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
 
 CREATE TABLE IF NOT EXISTS trades (

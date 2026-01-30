@@ -14,8 +14,8 @@ const ConfigureAgentModal: React.FC<ConfigureAgentModalProps> = ({
   onClose,
   onSave
 }) => {
-  const STRATEGY_OPTIONS = ["Sortino's Model", "Upside Model"] as const;
-  const [strategyName, setStrategyName] = useState<string>("Sortino's Model");
+  const STRATEGY_OPTIONS = ["Sortino Model", "Upside Model"] as const;
+  const [strategyName, setStrategyName] = useState<string>("Sortino Model");
   const [capitalType, setCapitalType] = useState<'CASH' | 'MARGIN'>('CASH');
   const [allowShorting, setAllowShorting] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -31,7 +31,7 @@ const ConfigureAgentModal: React.FC<ConfigureAgentModalProps> = ({
           const res = await fetch(url);
           if (res.ok) {
             const data = await res.json();
-            setStrategyName(data.strategy_name || "Sortino's Model");
+            setStrategyName(data.strategy_name || "Sortino Model");
             setCapitalType(data.account_type_display === 'MARGIN' ? 'MARGIN' : 'CASH');
             setAllowShorting(data.allow_shorting || false);
           }

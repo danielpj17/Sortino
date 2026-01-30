@@ -57,7 +57,7 @@ MODELS = {}  # keyed by strategy: 'sortino', 'upside'
 
 # Map display names to API strategy keys
 STRATEGY_NAME_TO_KEY = {
-    "Sortino's Model": "sortino",
+    "Sortino Model": "sortino",
     "Upside Model": "upside",
 }
 

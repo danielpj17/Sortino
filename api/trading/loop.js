@@ -16,7 +16,7 @@ const MODEL_API_URL = process.env.MODEL_API_URL || 'http://localhost:5000';
 
 // Map account strategy_name to Model API strategy key
 const STRATEGY_NAME_TO_KEY = {
-  "Sortino's Model": "sortino",
+  "Sortino Model": "sortino",
   "Upside Model": "upside",
 };
 
@@ -274,7 +274,7 @@ async function submitOrder(apiKey, secretKey, baseUrl, { symbol, qty, side, type
 }
 
 async function insertTrade(pool, { ticker, action, price, quantity, account_id, company_name = ticker, strategyName }) {
-  const strategyLabel = strategyName || "Sortino's Model";
+  const strategyLabel = strategyName || "Sortino Model";
   await pool.query(
     `INSERT INTO trades (ticker, action, price, quantity, strategy, pnl, account_id, company_name)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
@@ -360,7 +360,7 @@ export async function executeTradingLoop(accountId) {
   const maxTradeValue = portfolioValue * (acc.max_position_size || 0.4);
   const tradeValue = Math.min(maxTradeValue, buyingPower);
   const allowShorting = !!acc.allow_shorting;
-  const strategyName = acc.strategy_name || "Sortino's Model";
+  const strategyName = acc.strategy_name || "Sortino Model";
   const strategyKey = STRATEGY_NAME_TO_KEY[strategyName] || "sortino";
 
   // #region agent log

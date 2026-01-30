@@ -51,7 +51,7 @@ export default async function handler(req, res) {
       
       try {
         await pool.query(updateQuery, [
-          strategy_name || "Sortino's Model",
+          strategy_name || "Sortino Model",
           account_type_display || 'CASH',
           allow_shorting || false,
           account_id
@@ -74,7 +74,7 @@ export default async function handler(req, res) {
           name,
           COALESCE(bot_name, 'ALPHA-01') as bot_name,
           COALESCE(account_type_display, 'CASH') as account_type_display,
-          COALESCE(strategy_name, 'Sortino''s Model') as strategy_name,
+          COALESCE(strategy_name, 'Sortino Model') as strategy_name,
           COALESCE(allow_shorting, FALSE) as allow_shorting,
           api_key,
           secret_key,
@@ -95,7 +95,7 @@ export default async function handler(req, res) {
       if (account.bot_name === undefined) {
         account.bot_name = 'ALPHA-01';
         account.account_type_display = account_type_display || 'CASH';
-        account.strategy_name = strategy_name || "Sortino's Model";
+        account.strategy_name = strategy_name || "Sortino Model";
         account.allow_shorting = allow_shorting || false;
       }
 
@@ -191,7 +191,7 @@ export default async function handler(req, res) {
         name,
         COALESCE(bot_name, 'ALPHA-01') as bot_name,
         COALESCE(account_type_display, 'CASH') as account_type_display,
-        COALESCE(strategy_name, 'Sortino''s Model') as strategy_name,
+        COALESCE(strategy_name, 'Sortino Model') as strategy_name,
         COALESCE(allow_shorting, FALSE) as allow_shorting,
         api_key,
         secret_key,
@@ -237,7 +237,7 @@ export default async function handler(req, res) {
           account_name: 'Account Not Found',
           bot_name: 'ALPHA-01',
           account_type_display: 'CASH',
-          strategy_name: "Sortino's Model",
+          strategy_name: "Sortino Model",
           allow_shorting: false,
           api_status: 'DISCONNECTED',
           error: `Account with ID "${account_id}" not found in database. Please add it in Settings.`
@@ -248,7 +248,7 @@ export default async function handler(req, res) {
         account_name: 'STANDARD STRATEGY',
         bot_name: 'ALPHA-01',
         account_type_display: 'CASH',
-        strategy_name: "Sortino's Model",
+        strategy_name: "Sortino Model",
         allow_shorting: false,
         api_status: 'DISCONNECTED'
       });
@@ -259,7 +259,7 @@ export default async function handler(req, res) {
     // Use extended columns if available, otherwise use defaults
     const bot_name = account.bot_name !== undefined ? account.bot_name : 'ALPHA-01';
     const account_type_display = account.account_type_display !== undefined ? account.account_type_display : 'CASH';
-    const strategy_name = account.strategy_name !== undefined ? account.strategy_name : "Sortino's Model";
+    const strategy_name = account.strategy_name !== undefined ? account.strategy_name : "Sortino Model";
     const allow_shorting = account.allow_shorting !== undefined ? account.allow_shorting : false;
     
     // Check API status by attempting to connect to Alpaca

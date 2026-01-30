@@ -14,7 +14,7 @@ const BotTile: React.FC<BotTileProps> = ({ accountId, onStartBot, onStopBot, onV
     account_name: 'STANDARD STRATEGY',
     bot_name: 'ALPHA-01',
     account_type_display: 'CASH',
-    strategy_name: "Sortino's Model",
+    strategy_name: "Sortino Model",
     api_status: 'CONNECTED',
     api_error: null as string | null
   });
