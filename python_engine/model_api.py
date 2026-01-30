@@ -53,7 +53,13 @@ CORS(app)
 
 MODEL_DIR = os.path.dirname(__file__)
 REQUIRED_COLS = ["Open", "High", "Low", "Close", "Volume"]
-MODEL = None
+MODELS = {}  # keyed by strategy: 'sortino', 'upside'
+
+# Map display names to API strategy keys
+STRATEGY_NAME_TO_KEY = {
+    "Sortino's Model": "sortino",
+    "Upside Model": "upside",
+}
 
 
 class GymnasiumWrapper(gym.Env):
@@ -97,20 +103,34 @@ def sanitize_ohlcv(df):
     return df, None
 
 
-def load_model():
-    global MODEL
+def load_models():
+    """Load both Sortino and Upside models on startup."""
+    global MODELS
     try:
         from model_manager import get_latest_model
         db_url = os.getenv("DATABASE_URL")
-        if db_url:
-            MODEL = get_latest_model(db_url, MODEL_DIR)
-        if MODEL is None:
-            default_path = os.path.join(MODEL_DIR, "dow30_model.zip")
-            if os.path.isfile(default_path):
-                MODEL = PPO.load(default_path)
-        return MODEL is not None
+        for strategy in ["sortino", "upside"]:
+            try:
+                model = None
+                if db_url:
+                    model = get_latest_model(db_url, MODEL_DIR, strategy=strategy)
+                if model is None:
+                    default_path = os.path.join(MODEL_DIR, f"dow30_{strategy}_model.zip")
+                    if os.path.isfile(default_path):
+                        model = PPO.load(default_path)
+                if strategy == "sortino" and model is None:
+                    # Legacy fallback
+                    legacy_path = os.path.join(MODEL_DIR, "dow30_model.zip")
+                    if os.path.isfile(legacy_path):
+                        model = PPO.load(legacy_path)
+                if model is not None:
+                    MODELS[strategy] = model
+                    print(f"[OK] Loaded {strategy} model")
+            except Exception as e:
+                print(f"load_model ({strategy}) error: {e}")
+        return len(MODELS) > 0
     except Exception as e:
-        print("load_model error:", e)
+        print("load_models error:", e)
         return False
 
 
@@ -123,11 +143,11 @@ def root():
 @app.route("/health", methods=["GET"])
 def health():
     """Health check endpoint - always returns 200, even if model not loaded."""
-    model_file_exists = os.path.isfile(os.path.join(MODEL_DIR, "dow30_model.zip"))
     return jsonify({
         "status": "ok",
-        "model_loaded": MODEL is not None,
-        "model_file_exists": model_file_exists,
+        "models_loaded": {k: True for k in MODELS},
+        "sortino_loaded": "sortino" in MODELS,
+        "upside_loaded": "upside" in MODELS,
         "service": "Sortino Model API"
     })
 
@@ -138,13 +158,19 @@ def predict():
         data = request.get_json() or {}
         ticker = (data.get("ticker") or "").strip().upper()
         period = data.get("period") or "1mo"
+        strategy_raw = (data.get("strategy") or "").strip()
+        # Map display names to keys; default to sortino
+        strategy = STRATEGY_NAME_TO_KEY.get(strategy_raw, strategy_raw.lower() if strategy_raw else "sortino")
+        if strategy not in ("sortino", "upside"):
+            strategy = "sortino"
         # region agent log
-        _debug_log("model_api.py:predict", "predict_entry", {"ticker": ticker or "(empty)", "period": period}, "H1")
+        _debug_log("model_api.py:predict", "predict_entry", {"ticker": ticker or "(empty)", "period": period, "strategy": strategy}, "H1")
         # endregion
         if not ticker:
             return jsonify({"error": "ticker required"}), 400
 
-        if MODEL is None:
+        model = MODELS.get(strategy) or MODELS.get("sortino")
+        if model is None:
             return jsonify({"error": "model not loaded"}), 503
 
         # region agent log
@@ -221,8 +247,8 @@ def predict():
         try:
             # Get the policy's action distribution
             import torch
-            obs_tensor = MODEL.policy.obs_to_tensor(obs)[0]
-            distribution = MODEL.policy.get_distribution(obs_tensor)
+            obs_tensor = model.policy.obs_to_tensor(obs)[0]
+            distribution = model.policy.get_distribution(obs_tensor)
             # For discrete action space, get probabilities
             if hasattr(distribution.distribution, 'probs'):
                 action_probs = distribution.distribution.probs.detach().cpu().numpy()
@@ -289,15 +315,14 @@ if __name__ == "__main__":
     print(f"Python version: {sys.version}")
     print(f"Working directory: {os.getcwd()}")
     print(f"Model directory: {MODEL_DIR}")
-    print(f"Model file exists: {os.path.isfile(os.path.join(MODEL_DIR, 'dow30_model.zip'))}")
     print("=" * 50)
     
-    print("Loading model...")
+    print("Loading models...")
     try:
-        if load_model():
-            print("[OK] Model loaded successfully.")
+        if load_models():
+            print(f"[OK] Loaded {len(MODELS)} model(s): {list(MODELS.keys())}")
         else:
-            print("[WARN] Model not loaded. API will return 503 for /predict.")
+            print("[WARN] No models loaded. API will return 503 for /predict.")
     except Exception as e:
         print(f"[ERROR] Loading model: {e}")
         import traceback

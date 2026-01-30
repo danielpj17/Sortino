@@ -1,4 +1,5 @@
 import os
+import argparse
 import yfinance as yf
 import numpy as np
 import pandas as pd
@@ -7,7 +8,7 @@ from stable_baselines3.common.vec_env import DummyVecEnv
 from gym_anytrading.envs import StocksEnv
 import gymnasium as gym
 from dotenv import load_dotenv
-from model_manager import save_model_version
+from model_manager import save_model_version, get_reward_function
 
 # Load environment variables
 _load_dirs = [
@@ -24,54 +25,36 @@ else:
 
 NEON_DATABASE_URL = os.getenv("DATABASE_URL")
 
-# Sortino-style reward: penalize downside volatility heavily.
-DOWNSIDE_PENALTY_FACTOR = 2.0   # multiply negative rewards (e.g. x2)
-DOWNSIDE_SQUARED = True         # square magnitude for heavier penalty on large losses
-OPPORTUNITY_COST_PENALTY = -0.001  # Penalty for staying flat/in cash
-
-def _sortino_reward(raw_reward: float) -> float:
-    """Apply Sortino principle: heavy penalty for negative returns and opportunity cost for staying flat."""
-    # Opportunity cost: penalize staying in cash (raw_reward === 0.0)
-    if raw_reward == 0.0:
-        return OPPORTUNITY_COST_PENALTY
-    
-    # Positive rewards unchanged
-    if raw_reward > 0:
-        return raw_reward
-    
-    # Negative rewards: apply downside penalty
-    mag = abs(raw_reward)
-    if DOWNSIDE_SQUARED:
-        return -(DOWNSIDE_PENALTY_FACTOR * (mag ** 2))
-    return raw_reward * DOWNSIDE_PENALTY_FACTOR
-
 # --- CUSTOM WRAPPER ---
-# Gymnasium compatibility + Sortino custom reward (penalize downside volatility).
-class GymnasiumWrapper(gym.Env):
-    def __init__(self, df):
-        super().__init__()
-        self.env = StocksEnv(df=df, window_size=10, frame_bound=(10, len(df)))
-        self.action_space = self.env.action_space
-        self.observation_space = self.env.observation_space
+# Gymnasium compatibility + strategy-specific reward (from model_manager).
+def make_gymnasium_wrapper(reward_fn):
+    """Factory for GymnasiumWrapper with the given reward function."""
+    class GymnasiumWrapper(gym.Env):
+        def __init__(self, df):
+            super().__init__()
+            self.env = StocksEnv(df=df, window_size=10, frame_bound=(10, len(df)))
+            self.action_space = self.env.action_space
+            self.observation_space = self.env.observation_space
 
-    def reset(self, seed=None, options=None):
-        obs = self.env.reset()
-        if isinstance(obs, tuple):
-            obs = obs[0]
-        return obs, {}
+        def reset(self, seed=None, options=None):
+            obs = self.env.reset()
+            if isinstance(obs, tuple):
+                obs = obs[0]
+            return obs, {}
 
-    def step(self, action):
-        out = self.env.step(action)
-        obs = out[0]
-        raw_reward = float(out[1])
-        terminated = out[2] if len(out) > 2 else False
-        truncated = out[3] if len(out) > 3 else False
-        info = out[4] if len(out) > 4 else {}
-        reward = _sortino_reward(raw_reward)
-        return obs, reward, terminated, truncated, info
+        def step(self, action):
+            out = self.env.step(action)
+            obs = out[0]
+            raw_reward = float(out[1])
+            terminated = out[2] if len(out) > 2 else False
+            truncated = out[3] if len(out) > 3 else False
+            info = out[4] if len(out) > 4 else {}
+            reward = reward_fn(raw_reward)
+            return obs, reward, terminated, truncated, info
 
-    def render(self):
-        return self.env.render()
+        def render(self):
+            return self.env.render()
+    return GymnasiumWrapper
 
 # The Dow Jones Industrial Average (Dow 30) - WBA removed
 DOW_30 = [
@@ -80,11 +63,12 @@ DOW_30 = [
     'PG', 'TRV', 'UNH', 'CRM', 'VZ', 'V', 'WMT', 'DIS', 'DOW'
 ]
 
-def train_model():
+def train_model(strategy: str = "sortino"):
     model = None
-    save_path = "dow30_model.zip"
+    save_path = f"dow30_{strategy}_model.zip"
+    reward_fn = get_reward_function(strategy)
 
-    print(f"Starting training on {len(DOW_30)} assets...")
+    print(f"Starting training on {len(DOW_30)} assets (strategy={strategy})...")
     
     for i, ticker in enumerate(DOW_30):
         print(f"\n[{i+1}/{len(DOW_30)}] Processing {ticker}...")
@@ -105,6 +89,7 @@ def train_model():
                 continue
 
             # 2. Create Environment using our Custom Wrapper (capture df by value)
+            GymnasiumWrapper = make_gymnasium_wrapper(reward_fn)
             env = DummyVecEnv([lambda d=df: GymnasiumWrapper(d)])
 
             # 3. Initialize or Update Model
@@ -134,7 +119,8 @@ def train_model():
                     NEON_DATABASE_URL,
                     training_type="initial",
                     total_experiences=0,
-                    notes="Initial training on historical data (2015-2024)"
+                    notes=f"Initial training on historical data (2015-2024), strategy={strategy}",
+                    strategy=strategy
                 )
                 if version:
                     print(f"Model version {version} saved to database")
@@ -146,4 +132,8 @@ def train_model():
         print("\nFAILURE: Model was never initialized.")
 
 if __name__ == "__main__":
-    train_model()
+    parser = argparse.ArgumentParser(description="Train Dow30 RL model")
+    parser.add_argument("--reward", choices=["sortino", "upside"], default="sortino",
+                        help="Reward strategy: sortino (loss-averse) or upside (gain-focused)")
+    args = parser.parse_args()
+    train_model(strategy=args.reward)

@@ -44,18 +44,37 @@ def _sortino_reward(raw_reward: float) -> float:
     return raw_reward * DOWNSIDE_PENALTY_FACTOR
 
 
+def _upside_reward(raw_reward: float) -> float:
+    """Emphasize gains, punish losses less severely than Sortino (opposite philosophy)."""
+    if raw_reward == 0.0:
+        return OPPORTUNITY_COST_PENALTY
+    if raw_reward > 0:
+        # Amplify gains - convex: big wins rewarded more
+        return raw_reward ** 1.2
+    # Losses: linear (less severe than Sortino)
+    return raw_reward
+
+
+def get_reward_function(strategy: str):
+    """Return the reward function for the given strategy."""
+    if strategy == "upside":
+        return _upside_reward
+    return _sortino_reward
+
+
 def get_db_connection(database_url: str):
     """Get database connection."""
     return psycopg2.connect(database_url)
 
 
-def get_latest_model(database_url: str, model_dir: str = None) -> Optional[PPO]:
+def get_latest_model(database_url: str, model_dir: str = None, strategy: str = "sortino") -> Optional[PPO]:
     """
-    Load the most recent active model version.
+    Load the most recent active model version for the given strategy.
     
     Args:
         database_url: PostgreSQL connection string
         model_dir: Directory where models are stored (default: python_engine directory)
+        strategy: 'sortino' or 'upside'
     
     Returns:
         PPO model instance or None if no model found
@@ -70,18 +89,24 @@ def get_latest_model(database_url: str, model_dir: str = None) -> Optional[PPO]:
             cur.execute("""
                 SELECT model_path, version_number
                 FROM model_versions
-                WHERE is_active = TRUE
+                WHERE is_active = TRUE AND strategy = %s
                 ORDER BY created_at DESC
                 LIMIT 1
-            """)
+            """, (strategy,))
             row = cur.fetchone()
         except psycopg2.Error as e:
-            # model_versions table may not exist yet; fall back to default model
+            # model_versions table or strategy column may not exist; fall back to default
             cur.close()
-            default_path = os.path.join(model_dir, "dow30_model.zip")
+            default_path = os.path.join(model_dir, f"dow30_{strategy}_model.zip")
             if os.path.isfile(default_path):
                 print(f"Loading default model from {default_path} (model_versions not available)")
                 return PPO.load(default_path)
+            # Legacy fallback for sortino
+            if strategy == "sortino":
+                legacy_path = os.path.join(model_dir, "dow30_model.zip")
+                if os.path.isfile(legacy_path):
+                    print(f"Loading legacy model from {legacy_path}")
+                    return PPO.load(legacy_path)
             return None
         cur.close()
 
@@ -89,16 +114,22 @@ def get_latest_model(database_url: str, model_dir: str = None) -> Optional[PPO]:
             model_path, version = row
             full_path = os.path.join(model_dir, model_path) if not os.path.isabs(model_path) else model_path
             if os.path.isfile(full_path):
-                print(f"Loading model version {version} from {full_path}")
+                print(f"Loading model version {version} ({strategy}) from {full_path}")
                 return PPO.load(full_path)
             else:
                 print(f"Warning: Model file not found: {full_path}")
 
-        # Fallback: try default model path
-        default_path = os.path.join(model_dir, "dow30_model.zip")
+        # Fallback: try default model path for strategy
+        default_path = os.path.join(model_dir, f"dow30_{strategy}_model.zip")
         if os.path.isfile(default_path):
             print(f"Loading default model from {default_path}")
             return PPO.load(default_path)
+        # Legacy fallback for sortino
+        if strategy == "sortino":
+            legacy_path = os.path.join(model_dir, "dow30_model.zip")
+            if os.path.isfile(legacy_path):
+                print(f"Loading legacy model from {legacy_path}")
+                return PPO.load(legacy_path)
 
         return None
     finally:
@@ -111,7 +142,8 @@ def save_model_version(
     model_dir: str = None,
     training_type: str = "online",
     total_experiences: int = 0,
-    notes: str = None
+    notes: str = None,
+    strategy: str = "sortino"
 ) -> Optional[int]:
     """
     Save model with versioning and metadata.
@@ -123,6 +155,7 @@ def save_model_version(
         training_type: 'initial', 'online', or 'full_retrain'
         total_experiences: Number of experiences used in training
         notes: Optional notes about this version
+        strategy: 'sortino' or 'upside'
     
     Returns:
         Version number if successful, None otherwise
@@ -134,15 +167,19 @@ def save_model_version(
     try:
         cur = conn.cursor()
         
-        # Get next version number
+        # Get next version number (global across strategies)
         cur.execute("SELECT COALESCE(MAX(version_number), 0) + 1 FROM model_versions")
         version_number = cur.fetchone()[0]
         
-        # Deactivate all previous versions
-        cur.execute("UPDATE model_versions SET is_active = FALSE")
+        # Deactivate only same-strategy previous versions
+        try:
+            cur.execute("UPDATE model_versions SET is_active = FALSE WHERE strategy = %s", (strategy,))
+        except psycopg2.Error:
+            # strategy column may not exist yet; fall back to deactivating all
+            cur.execute("UPDATE model_versions SET is_active = FALSE")
         
-        # Generate model filename
-        model_filename = f"dow30_model_v{version_number}.zip"
+        # Generate model filename (strategy-specific)
+        model_filename = f"dow30_{strategy}_model_v{version_number}.zip"
         model_path = os.path.join(model_dir, model_filename)
         
         # Save model
@@ -152,24 +189,45 @@ def save_model_version(
         # Calculate performance metrics
         metrics = get_model_performance(database_url, version_number - 1)  # Use previous version's trades
         
-        # Insert new version record
-        cur.execute("""
-            INSERT INTO model_versions 
-            (version_number, model_path, training_type, total_experiences, 
-             win_rate, avg_pnl, sortino_ratio, total_trades, is_active, notes)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        """, (
-            version_number,
-            model_filename,
-            training_type,
-            total_experiences,
-            metrics.get('win_rate'),
-            metrics.get('avg_pnl'),
-            metrics.get('sortino_ratio'),
-            metrics.get('total_trades'),
-            True,
-            notes
-        ))
+        # Insert new version record (include strategy if column exists)
+        try:
+            cur.execute("""
+                INSERT INTO model_versions 
+                (version_number, model_path, training_type, total_experiences, 
+                 win_rate, avg_pnl, sortino_ratio, total_trades, is_active, notes, strategy)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (
+                version_number,
+                model_filename,
+                training_type,
+                total_experiences,
+                metrics.get('win_rate'),
+                metrics.get('avg_pnl'),
+                metrics.get('sortino_ratio'),
+                metrics.get('total_trades'),
+                True,
+                notes,
+                strategy
+            ))
+        except psycopg2.Error:
+            # strategy column may not exist; insert without it
+            cur.execute("""
+                INSERT INTO model_versions 
+                (version_number, model_path, training_type, total_experiences, 
+                 win_rate, avg_pnl, sortino_ratio, total_trades, is_active, notes)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (
+                version_number,
+                model_filename,
+                training_type,
+                total_experiences,
+                metrics.get('win_rate'),
+                metrics.get('avg_pnl'),
+                metrics.get('sortino_ratio'),
+                metrics.get('total_trades'),
+                True,
+                notes
+            ))
         
         conn.commit()
         cur.close()

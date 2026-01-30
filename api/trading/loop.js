@@ -12,8 +12,13 @@ const DOW_30 = [
   'PG', 'TRV', 'UNH', 'CRM', 'VZ', 'V', 'WMT', 'DIS', 'DOW',
 ];
 
-const STRATEGY_NAME = 'Dow30-Swing-Sortino';
 const MODEL_API_URL = process.env.MODEL_API_URL || 'http://localhost:5000';
+
+// Map account strategy_name to Model API strategy key
+const STRATEGY_NAME_TO_KEY = {
+  "Sortino's Model": "sortino",
+  "Upside Model": "upside",
+};
 
 // Decision Layer Smoothing Constants (loosened to allow more trades)
 const ROLLING_WINDOW_SIZE = 5;   // Number of predictions to average (reduced from 10 for faster response)
@@ -80,19 +85,22 @@ function isMarketOpen() {
 
 /**
  * Apply decision layer smoothing using rolling window averages and hysteresis thresholds.
+ * Rolling windows are keyed by ticker+strategyKey so different strategies don't mix predictions.
  * @param {string} ticker - Stock ticker symbol
  * @param {number} rawBuyProb - Raw buy probability from model
  * @param {number} rawSellProb - Raw sell probability from model
  * @param {boolean} hasPosition - Whether we currently hold a long position
+ * @param {string} strategyKey - Strategy key (e.g. 'sortino', 'upside') for window isolation
  * @returns {{action: string, actionCode: number, smoothedBuyProb: number, smoothedSellProb: number}}
  */
-function applyDecisionSmoothing(ticker, rawBuyProb, rawSellProb, hasPosition) {
-  // Initialize rolling window for ticker if it doesn't exist
-  if (!rollingWindows.has(ticker)) {
-    rollingWindows.set(ticker, { buyProbs: [], sellProbs: [] });
+function applyDecisionSmoothing(ticker, rawBuyProb, rawSellProb, hasPosition, strategyKey) {
+  const windowKey = `${ticker}_${strategyKey || 'sortino'}`;
+  // Initialize rolling window for ticker+strategy if it doesn't exist
+  if (!rollingWindows.has(windowKey)) {
+    rollingWindows.set(windowKey, { buyProbs: [], sellProbs: [] });
   }
   
-  const window = rollingWindows.get(ticker);
+  const window = rollingWindows.get(windowKey);
   
   // Add new probabilities to rolling window
   window.buyProbs.push(rawBuyProb || 0);
@@ -154,10 +162,10 @@ function applyDecisionSmoothing(ticker, rawBuyProb, rawSellProb, hasPosition) {
   };
 }
 
-async function getModelPrediction(ticker) {
+async function getModelPrediction(ticker, strategyKey) {
   const requestUrl = `${MODEL_API_URL}/predict`;
   // #region agent log
-  fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:67',message:'Model API request start',data:{ticker,modelApiUrl:MODEL_API_URL,requestUrl,envVarSet:!!process.env.MODEL_API_URL},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+  fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:67',message:'Model API request start',data:{ticker,strategyKey,modelApiUrl:MODEL_API_URL,requestUrl,envVarSet:!!process.env.MODEL_API_URL},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
   // #endregion
   
   try {
@@ -169,7 +177,7 @@ async function getModelPrediction(ticker) {
     const res = await fetch(requestUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ticker, period: '1mo' }),
+      body: JSON.stringify({ ticker, period: '1mo', strategy: strategyKey || 'sortino' }),
       signal: controller.signal,
     });
     const duration = Date.now() - startTime;
@@ -265,11 +273,12 @@ async function submitOrder(apiKey, secretKey, baseUrl, { symbol, qty, side, type
   });
 }
 
-async function insertTrade(pool, { ticker, action, price, quantity, account_id, company_name = ticker }) {
+async function insertTrade(pool, { ticker, action, price, quantity, account_id, company_name = ticker, strategyName }) {
+  const strategyLabel = strategyName || "Sortino's Model";
   await pool.query(
     `INSERT INTO trades (ticker, action, price, quantity, strategy, pnl, account_id, company_name)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-    [ticker, action, price, quantity, STRATEGY_NAME, 0.0, account_id, company_name]
+    [ticker, action, price, quantity, strategyLabel, 0.0, account_id, company_name]
   );
 }
 
@@ -351,6 +360,8 @@ export async function executeTradingLoop(accountId) {
   const maxTradeValue = portfolioValue * (acc.max_position_size || 0.4);
   const tradeValue = Math.min(maxTradeValue, buyingPower);
   const allowShorting = !!acc.allow_shorting;
+  const strategyName = acc.strategy_name || "Sortino's Model";
+  const strategyKey = STRATEGY_NAME_TO_KEY[strategyName] || "sortino";
 
   // #region agent log
   fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:157',message:'Account financials',data:{accountId,buyingPower,portfolioValue,maxPositionSize:acc.max_position_size||0.4,maxTradeValue,tradeValue,allowShorting},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
@@ -404,7 +415,7 @@ export async function executeTradingLoop(accountId) {
       fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:168',message:'Fetching model prediction',data:{accountId,ticker},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
       // #endregion
       
-      const pred = await getModelPrediction(ticker);
+      const pred = await getModelPrediction(ticker, strategyKey);
       
       // #region agent log
       fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:171',message:'Model prediction received',data:{accountId,ticker,hasPrediction:!!pred,error:pred?.error,action:pred?.action,actionCode:pred?.action_code,price:pred?.price,buyProb:pred?.buy_probability,sellProb:pred?.sell_probability,priceChange10d:pred?.price_change_10d_pct,volatility10d:pred?.volatility_10d,dataPoints:pred?.data_points,modelApiUrl:MODEL_API_URL},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
@@ -521,6 +532,7 @@ export async function executeTradingLoop(accountId) {
               price,
               quantity: closeQty,
               account_id: accountId,
+              strategyName,
             });
             // #region agent log
             fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:207',message:'Trade executed: covered short',data:{accountId,ticker,qty:closeQty},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
@@ -564,6 +576,7 @@ export async function executeTradingLoop(accountId) {
             price,
             quantity: qty,
             account_id: accountId,
+            strategyName,
           });
           // #region agent log
           fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:226',message:'Trade executed: BUY filled',data:{accountId,ticker,qty},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
@@ -599,6 +612,7 @@ export async function executeTradingLoop(accountId) {
               price,
               quantity: closeQty,
               account_id: accountId,
+              strategyName,
             });
             // #region agent log
             fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:246',message:'Trade executed: closed long',data:{accountId,ticker,qty:closeQty},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
@@ -628,6 +642,7 @@ export async function executeTradingLoop(accountId) {
               price,
               quantity: qty,
               account_id: accountId,
+              strategyName,
             });
             // #region agent log
             fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:266',message:'Trade executed: short opened',data:{accountId,ticker,qty},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});

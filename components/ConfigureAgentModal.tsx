@@ -14,6 +14,8 @@ const ConfigureAgentModal: React.FC<ConfigureAgentModalProps> = ({
   onClose,
   onSave
 }) => {
+  const STRATEGY_OPTIONS = ["Sortino's Model", "Upside Model"] as const;
+  const [strategyName, setStrategyName] = useState<string>("Sortino's Model");
   const [capitalType, setCapitalType] = useState<'CASH' | 'MARGIN'>('CASH');
   const [allowShorting, setAllowShorting] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -29,6 +31,7 @@ const ConfigureAgentModal: React.FC<ConfigureAgentModalProps> = ({
           const res = await fetch(url);
           if (res.ok) {
             const data = await res.json();
+            setStrategyName(data.strategy_name || "Sortino's Model");
             setCapitalType(data.account_type_display === 'MARGIN' ? 'MARGIN' : 'CASH');
             setAllowShorting(data.allow_shorting || false);
           }
@@ -89,7 +92,7 @@ const ConfigureAgentModal: React.FC<ConfigureAgentModalProps> = ({
         },
         body: JSON.stringify({
           account_id: targetAccountId,
-          strategy_name: "Sortino's Model",
+          strategy_name: strategyName,
           account_type_display: capitalType,
           allow_shorting: capitalType === 'MARGIN' ? allowShorting : false
         })
@@ -139,13 +142,22 @@ const ConfigureAgentModal: React.FC<ConfigureAgentModalProps> = ({
             <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest block">
               STRATEGY BOT
             </label>
-            <button
-              type="button"
-              disabled
-              className="w-full bg-zinc-800/50 border border-[#86c7f3] text-white text-sm font-bold py-3 px-4 rounded-xl cursor-not-allowed opacity-75"
-            >
-              Sortino's Model
-            </button>
+            <div className="flex gap-3">
+              {STRATEGY_OPTIONS.map((opt) => (
+                <button
+                  key={opt}
+                  type="button"
+                  onClick={() => setStrategyName(opt)}
+                  className={`flex-1 py-3 px-4 rounded-xl text-sm font-bold transition-colors ${
+                    strategyName === opt
+                      ? 'bg-[#86c7f3] text-white border border-[#86c7f3]'
+                      : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 border border-zinc-700'
+                  }`}
+                >
+                  {opt}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Capital Configuration Section */}

@@ -1,9 +1,10 @@
 """
-Daily Retraining Script for Sortino Model
+Daily Retraining Script for Sortino/Upside Models
 Runs daily to update the model with new trading experiences using hybrid learning approach.
 """
 import os
 import sys
+import argparse
 import json
 import time
 import psycopg2
@@ -17,7 +18,7 @@ import gymnasium as gym
 from dotenv import load_dotenv
 from model_manager import (
     get_latest_model, save_model_version, get_model_performance,
-    get_db_connection, _sortino_reward
+    get_db_connection, get_reward_function
 )
 
 # Load environment variables
@@ -38,11 +39,6 @@ if not NEON_DATABASE_URL:
     print("DATABASE_URL not set. Check .env.")
     sys.exit(1)
 
-# Sortino reward parameters (must match train.py)
-DOWNSIDE_PENALTY_FACTOR = 2.0
-DOWNSIDE_SQUARED = True
-OPPORTUNITY_COST_PENALTY = -0.001  # Penalty for staying flat/in cash
-
 # DOW 30 tickers
 DOW_30 = [
     "AXP", "AMGN", "AAPL", "BA", "CAT", "CSCO", "CVX", "GS", "HD", "HON",
@@ -53,32 +49,34 @@ DOW_30 = [
 REQUIRED_COLS = ["Open", "High", "Low", "Close", "Volume"]
 
 
-class GymnasiumWrapper(gym.Env):
-    """Environment wrapper matching train.py"""
-    def __init__(self, df):
-        super().__init__()
-        self.env = StocksEnv(df=df, window_size=10, frame_bound=(10, len(df)))
-        self.action_space = self.env.action_space
-        self.observation_space = self.env.observation_space
+def make_gymnasium_wrapper(reward_fn):
+    """Factory for GymnasiumWrapper with the given reward function."""
+    class GymnasiumWrapper(gym.Env):
+        def __init__(self, df):
+            super().__init__()
+            self.env = StocksEnv(df=df, window_size=10, frame_bound=(10, len(df)))
+            self.action_space = self.env.action_space
+            self.observation_space = self.env.observation_space
 
-    def reset(self, seed=None, options=None):
-        obs = self.env.reset()
-        if isinstance(obs, tuple):
-            obs = obs[0]
-        return obs, {}
+        def reset(self, seed=None, options=None):
+            obs = self.env.reset()
+            if isinstance(obs, tuple):
+                obs = obs[0]
+            return obs, {}
 
-    def step(self, action):
-        out = self.env.step(action)
-        obs = out[0]
-        raw_reward = float(out[1])
-        terminated = out[2] if len(out) > 2 else False
-        truncated = out[3] if len(out) > 3 else False
-        info = out[4] if len(out) > 4 else {}
-        reward = _sortino_reward(raw_reward)
-        return obs, reward, terminated, truncated, info
+        def step(self, action):
+            out = self.env.step(action)
+            obs = out[0]
+            raw_reward = float(out[1])
+            terminated = out[2] if len(out) > 2 else False
+            truncated = out[3] if len(out) > 3 else False
+            info = out[4] if len(out) > 4 else {}
+            reward = reward_fn(raw_reward)
+            return obs, reward, terminated, truncated, info
 
-    def render(self):
-        return self.env.render()
+        def render(self):
+            return self.env.render()
+    return GymnasiumWrapper
 
 
 def sanitize_ohlcv(df):
@@ -142,7 +140,7 @@ def load_experiences_from_db(conn, limit=None):
     return experiences
 
 
-def update_incomplete_experiences(conn):
+def update_incomplete_experiences(conn, reward_fn):
     """
     Update rewards for experiences linked to completed trades.
     This handles cases where trades completed but experiences weren't updated.
@@ -190,7 +188,7 @@ def update_incomplete_experiences(conn):
     return updated
 
 
-def online_learning_update(model, conn, experiences, timesteps=1000):
+def online_learning_update(model, conn, experiences, reward_fn, timesteps=1000):
     """
     Perform online learning update using new experiences.
     
@@ -242,7 +240,7 @@ def online_learning_update(model, conn, experiences, timesteps=1000):
     return model
 
 
-def full_retrain(conn, model_dir=None):
+def full_retrain(conn, model_dir=None, strategy="sortino"):
     """
     Perform full retraining from scratch using all historical data + experiences.
     
@@ -289,7 +287,7 @@ def full_retrain(conn, model_dir=None):
     experiences = load_experiences_from_db(conn, limit=10000)  # Limit to prevent memory issues
     if experiences:
         print(f"Incorporating {len(experiences)} live trading experiences...")
-        model = online_learning_update(model, conn, experiences, timesteps=2000)
+        model = online_learning_update(model, conn, experiences, reward_fn, timesteps=2000)
     
     return model
 
@@ -302,13 +300,23 @@ def should_full_retrain(conn):
         True if full retrain should be performed
     """
     cur = conn.cursor()
-    cur.execute("""
-        SELECT created_at, training_type
-        FROM model_versions
-        WHERE training_type = 'full_retrain'
-        ORDER BY created_at DESC
-        LIMIT 1
-    """)
+    try:
+        cur.execute("""
+            SELECT created_at, training_type
+            FROM model_versions
+            WHERE training_type = 'full_retrain' AND strategy = %s
+            ORDER BY created_at DESC
+            LIMIT 1
+        """, (strategy,))
+    except psycopg2.Error:
+        # strategy column may not exist
+        cur.execute("""
+            SELECT created_at, training_type
+            FROM model_versions
+            WHERE training_type = 'full_retrain'
+            ORDER BY created_at DESC
+            LIMIT 1
+        """)
     row = cur.fetchone()
     cur.close()
     
@@ -325,35 +333,43 @@ def should_full_retrain(conn):
 
 def main():
     """Main retraining function."""
+    parser = argparse.ArgumentParser(description="Retrain Dow30 RL model")
+    parser.add_argument("--strategy", choices=["sortino", "upside"], default="sortino",
+                        help="Strategy to retrain: sortino or upside")
+    args = parser.parse_args()
+    strategy = args.strategy
+    
     print("=" * 60)
-    print("Sortino Model Retraining Script")
+    print(f"Model Retraining Script (strategy={strategy})")
     print("=" * 60)
     
+    reward_fn = get_reward_function(strategy)
     conn = get_db_connection(NEON_DATABASE_URL)
     
     try:
-        # Update incomplete experiences first
-        update_incomplete_experiences(conn)
+        # Update incomplete experiences first (with strategy-specific reward)
+        update_incomplete_experiences(conn, reward_fn)
         
-        # Load current model
-        print("\nLoading current model...")
-        model = get_latest_model(NEON_DATABASE_URL)
+        # Load current model for this strategy
+        print(f"\nLoading current {strategy} model...")
+        model_dir = os.path.dirname(__file__)
+        model = get_latest_model(NEON_DATABASE_URL, model_dir, strategy=strategy)
         if model is None:
             print("No model found. Running initial full training...")
-            model = full_retrain(conn)
+            model = full_retrain(conn, model_dir=model_dir, strategy=strategy)
             training_type = "initial"
         else:
             # Decide: online update or full retrain?
-            if should_full_retrain(conn):
+            if should_full_retrain(conn, strategy=strategy):
                 print("\nPerforming full retrain (weekly)...")
-                model = full_retrain(conn)
+                model = full_retrain(conn, model_dir=model_dir, strategy=strategy)
                 training_type = "full_retrain"
             else:
                 print("\nPerforming online learning update...")
                 # Load recent experiences
                 experiences = load_experiences_from_db(conn, limit=5000)
                 if experiences:
-                    model = online_learning_update(model, conn, experiences, timesteps=2000)
+                    model = online_learning_update(model, conn, experiences, reward_fn, timesteps=2000)
                     training_type = "online"
                 else:
                     print("No new experiences available. Skipping update.")
@@ -366,13 +382,15 @@ def main():
         cur.close()
         
         # Save new model version
-        print(f"\nSaving model version (training_type={training_type}, experiences={total_experiences})...")
+        print(f"\nSaving model version (strategy={strategy}, training_type={training_type}, experiences={total_experiences})...")
         version = save_model_version(
             model,
             NEON_DATABASE_URL,
+            model_dir=model_dir,
             training_type=training_type,
             total_experiences=total_experiences,
-            notes=f"Daily retrain - {training_type}"
+            notes=f"Daily retrain - {training_type}, strategy={strategy}",
+            strategy=strategy
         )
         
         if version:
