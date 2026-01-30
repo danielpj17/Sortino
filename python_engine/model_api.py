@@ -234,7 +234,7 @@ def predict():
         # region agent log
         _debug_log("model_api.py:predict", "before_predict", {"obs_shape": getattr(obs, "shape", None)}, "H4")
         # endregion
-        action, _ = MODEL.predict(obs, deterministic=True)
+        action, _ = model.predict(obs, deterministic=True)
         action_code = int(action[0])
         action_type = "BUY" if action_code == 1 else "SELL"
         # region agent log
@@ -269,6 +269,11 @@ def predict():
             # If we can't get probabilities, log the error but continue
             print(f"Could not get action probabilities: {e}")
             traceback.print_exc()
+
+        # Fallback: derive from action_code when probability extraction fails
+        if buy_prob is None or sell_prob is None:
+            buy_prob = 0.6 if action_code == 1 else 0.4
+            sell_prob = 0.4 if action_code == 1 else 0.6
 
         # region agent log
         _debug_log("model_api.py:predict", "before_price_block", {"df_len": len(df)}, "H5")
