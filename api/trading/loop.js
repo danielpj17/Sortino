@@ -15,12 +15,12 @@ const DOW_30 = [
 const STRATEGY_NAME = 'Dow30-Swing-Sortino';
 const MODEL_API_URL = process.env.MODEL_API_URL || 'http://localhost:5000';
 
-// Decision Layer Smoothing Constants
-const ROLLING_WINDOW_SIZE = 10;  // Number of predictions to average
-const CONFIDENCE_THRESHOLD = 0.55;  // Minimum probability to execute (lowered from 0.65 for more trades)
-const DEAD_ZONE_LOW = 0.35;  // Lower bound of dead zone
-const DEAD_ZONE_HIGH = 0.55;  // Upper bound of dead zone (matches CONFIDENCE_THRESHOLD)
-const BUY_BIAS_THRESHOLD = 0.05;  // 5% difference threshold for buy bias
+// Decision Layer Smoothing Constants (loosened to allow more trades)
+const ROLLING_WINDOW_SIZE = 5;   // Number of predictions to average (reduced from 10 for faster response)
+const CONFIDENCE_THRESHOLD = 0.45;  // Minimum probability to execute (lowered from 0.55 for more trades)
+const DEAD_ZONE_LOW = 0.30;   // Lower bound of dead zone
+const DEAD_ZONE_HIGH = 0.45;  // Upper bound of dead zone (matches CONFIDENCE_THRESHOLD)
+const BUY_BIAS_THRESHOLD = 0.08;  // 8% difference threshold - favor BUY when probs are close
 
 // Rolling window storage: Map<ticker, {buyProbs: number[], sellProbs: number[]}>
 const rollingWindows = new Map();
