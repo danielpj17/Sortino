@@ -33,7 +33,13 @@ const LiveTrading: React.FC = () => {
   const [stats, setStats] = useState({ totalPnL: 0, winRate: 0, totalTrades: 0 });
   const [accounts, setAccounts] = useState<any[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
-  const [portfolioData, setPortfolioData] = useState<{ portfolio_value: number; buying_power: number; cash: number } | null>(null);
+  const [portfolioData, setPortfolioData] = useState<{
+    portfolio_value: number;
+    buying_power: number;
+    cash: number;
+    positions?: Array<{ symbol: string; qty: number; side: string; market_value: number; unrealized_pl: number; avg_entry_price: number; current_price: number }>;
+    completedTrades?: Array<{ symbol: string; qty: number; buyPrice: number; sellPrice: number; buyTime: string; sellTime: string; pnl: number }>;
+  } | null>(null);
   const [isAccountDropdownOpen, setIsAccountDropdownOpen] = useState(false);
   const [viewMode, setViewMode] = useState<'POSITIONS' | 'COMPLETED'>('POSITIONS');
   const [marketPrices, setMarketPrices] = useState<Record<string, number>>({});
@@ -86,7 +92,7 @@ const LiveTrading: React.FC = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Fetch live portfolio from Alpaca when account is selected
+  // Fetch live portfolio from Alpaca when account is selected (includes positions and activities)
   useEffect(() => {
     if (!selectedAccountId) {
       setPortfolioData(null);
@@ -94,13 +100,15 @@ const LiveTrading: React.FC = () => {
     }
     const fetchPortfolio = async () => {
       try {
-        const res = await fetch(`/api/account-portfolio?account_id=${selectedAccountId}`);
+        const res = await fetch(`/api/account-portfolio?account_id=${selectedAccountId}&include_activities=true`);
         if (res.ok) {
           const data = await res.json();
           setPortfolioData({
             portfolio_value: data.portfolio_value ?? 0,
             buying_power: data.buying_power ?? 0,
             cash: data.cash ?? 0,
+            positions: data.positions ?? [],
+            completedTrades: data.completedTrades ?? [],
           });
         } else {
           setPortfolioData(null);
@@ -148,16 +156,14 @@ const LiveTrading: React.FC = () => {
     return () => clearInterval(interval);
   }, [selectedAccountId]);
 
-  // Fetch market prices
+  const tickersForPrices = portfolioData?.positions?.length
+    ? portfolioData.positions.map((p) => p.symbol)
+    : [...new Set(trades.map((t) => t.ticker))];
   useEffect(() => {
     const fetchPrices = async () => {
-      if (trades.length === 0) return;
-      
-      const uniqueTickers = [...new Set(trades.map(t => t.ticker))];
-      if (uniqueTickers.length === 0) return;
-
+      if (tickersForPrices.length === 0) return;
       try {
-        const tickersParam = uniqueTickers.join(',');
+        const tickersParam = tickersForPrices.join(',');
         const accountParam = selectedAccountId ? `&account_id=${selectedAccountId}` : '';
         const res = await fetch(`/api/market-prices?tickers=${tickersParam}${accountParam}`);
         if (res.ok) {
@@ -168,11 +174,10 @@ const LiveTrading: React.FC = () => {
         console.error("Failed to fetch market prices", error);
       }
     };
-    
     fetchPrices();
     const interval = setInterval(fetchPrices, 30000);
     return () => clearInterval(interval);
-  }, [trades, selectedAccountId]);
+  }, [tickersForPrices.join(','), selectedAccountId]);
 
   // Match trades into positions
   const matchTrades = (): Position[] => {
@@ -220,8 +225,9 @@ const LiveTrading: React.FC = () => {
   };
 
   const formatTime = (timestamp: string) => {
+    if (!timestamp) return '--';
     const date = new Date(timestamp);
-    return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+    return isNaN(date.getTime()) ? '--' : date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
   };
 
   const formatHoldDuration = (buyTime: string, sellTime?: string) => {
@@ -238,27 +244,88 @@ const LiveTrading: React.FC = () => {
     return `${diffMins}m`;
   };
 
-  const positions = matchTrades();
-  const openPositions = positions.filter(p => !p.sellTrade);
-  const completedTrades = positions.filter(p => p.sellTrade);
+  const dbPositions = matchTrades();
+  const dbOpenPositions = dbPositions.filter((p) => !p.sellTrade);
+  const dbCompletedTrades = dbPositions.filter((p) => p.sellTrade);
+
+  const useAlpacaData = portfolioData?.positions !== undefined && portfolioData?.completedTrades !== undefined;
+  const alpacaOpenPositions = (portfolioData?.positions ?? []).map((p) => ({
+    buyTrade: {
+      id: p.symbol,
+      ticker: p.symbol,
+      price: p.avg_entry_price,
+      quantity: p.qty,
+      timestamp: '',
+      action: 'BUY' as const,
+      strategy: '',
+      pnl: 0,
+      account_id: selectedAccountId ?? '',
+      company_name: p.symbol,
+    },
+    marketPrice: p.current_price || marketPrices[p.symbol],
+    positionValue: p.market_value,
+    pnl: p.unrealized_pl,
+  }));
+  const alpacaCompletedTrades = (portfolioData?.completedTrades ?? []).map((ct) => ({
+    buyTrade: {
+      id: `${ct.symbol}-${ct.buyTime}`,
+      ticker: ct.symbol,
+      price: ct.buyPrice,
+      quantity: ct.qty,
+      timestamp: ct.buyTime,
+      action: 'BUY' as const,
+      strategy: '',
+      pnl: 0,
+      account_id: selectedAccountId ?? '',
+      company_name: ct.symbol,
+    },
+    sellTrade: {
+      id: `${ct.symbol}-${ct.sellTime}`,
+      ticker: ct.symbol,
+      price: ct.sellPrice,
+      quantity: ct.qty,
+      timestamp: ct.sellTime,
+      action: 'SELL' as const,
+      strategy: '',
+      pnl: ct.pnl,
+      account_id: selectedAccountId ?? '',
+      company_name: ct.symbol,
+    },
+    pnl: ct.pnl,
+  }));
+
+  const openPositions = useAlpacaData ? alpacaOpenPositions : dbOpenPositions;
+  const completedTrades = useAlpacaData ? alpacaCompletedTrades : dbCompletedTrades;
   const displayedPositions = viewMode === 'POSITIONS' ? openPositions : completedTrades;
 
   const selectedAccount = selectedAccountId ? accounts.find(a => a.id === selectedAccountId) : null;
 
-  // Calculate portfolio equity: use live Alpaca data when available, else fallback to trade-derived
   const startingCapital = 10000; // Default for Live accounts
-  const totalPnL = stats.totalPnL;
-  const unrealizedPnL = openPositions.reduce((sum, p) => {
-    if (p.marketPrice && p.buyTrade) {
-      return sum + (p.marketPrice - p.buyTrade.price) * p.buyTrade.quantity;
-    }
-    return sum;
-  }, 0);
-  const positionValue = openPositions.reduce((sum, p) => sum + (p.positionValue || 0), 0);
+  const alpacaPositionValue = (portfolioData?.positions ?? []).reduce((s, p) => s + (p.market_value || 0), 0);
+  const alpacaTotalTrades = (portfolioData?.completedTrades ?? []).length;
+  const alpacaWins = (portfolioData?.completedTrades ?? []).filter((ct) => ct.pnl > 0).length;
+  const alpacaWinRate = alpacaTotalTrades > 0 ? ((alpacaWins / alpacaTotalTrades) * 100).toFixed(1) : 0;
+
+  const totalPnL = useAlpacaData
+    ? (portfolioData?.completedTrades ?? []).reduce((s, ct) => s + ct.pnl, 0)
+    : stats.totalPnL;
+  const unrealizedPnL = useAlpacaData
+    ? (portfolioData?.positions ?? []).reduce((s, p) => s + (p.unrealized_pl || 0), 0)
+    : openPositions.reduce((sum, p) => {
+        if (p.marketPrice && p.buyTrade) {
+          return sum + (p.marketPrice - p.buyTrade.price) * p.buyTrade.quantity;
+        }
+        return sum;
+      }, 0);
+  const positionValue = useAlpacaData ? alpacaPositionValue : openPositions.reduce((sum, p) => sum + (p.positionValue || 0), 0);
   const portfolioEquity = portfolioData?.portfolio_value ?? (startingCapital + totalPnL + unrealizedPnL);
   const availableCash = portfolioData?.buying_power ?? Math.max(0, startingCapital - positionValue + totalPnL);
 
-  // Calculate percent change (from starting capital)
+  const totalTrades = useAlpacaData ? alpacaTotalTrades : stats.totalTrades;
+  const winRate = useAlpacaData ? Number(alpacaWinRate) : Number(stats.winRate);
+  const profitableTrades = useAlpacaData ? alpacaWins : 0;
+  const lossTrades = useAlpacaData ? alpacaTotalTrades - alpacaWins : 0;
+
   const percentChange = startingCapital > 0 ? ((portfolioEquity - startingCapital) / startingCapital) * 100 : 0;
 
   return (
@@ -311,9 +378,10 @@ const LiveTrading: React.FC = () => {
         portfolioEquity={portfolioEquity}
         positionValue={positionValue}
         availableCash={availableCash} 
-        winRate={Number(stats.winRate)} 
-        totalTrades={stats.totalTrades} 
-        profitableTrades={0} lossTrades={0}
+        winRate={winRate} 
+        totalTrades={totalTrades} 
+        profitableTrades={profitableTrades} 
+        lossTrades={lossTrades}
         percentChange={percentChange}
       />
 

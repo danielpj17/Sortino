@@ -29,13 +29,24 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({ type = 'Paper', account
     const fetchData = async () => {
       setLoading(true);
       try {
-        const accountParam = accountId ? `&account_id=${accountId}` : '';
-        const res = await fetch(`/api/stats?type=${type}&includeEquity=true&range=${range}${accountParam}`);
-        if (res.ok) {
-          const data = await res.json();
-          setChartData(data.equityData || []);
+        // When accountId is provided (Paper/Live), fetch from Alpaca portfolio history
+        if (accountId) {
+          const res = await fetch(`/api/account-portfolio?account_id=${accountId}&include_portfolio_history=true&range=${range}`);
+          if (res.ok) {
+            const data = await res.json();
+            setChartData(data.portfolioHistory || []);
+          } else {
+            setChartData([]);
+          }
         } else {
-          setChartData([]);
+          // Fallback: no account selected, use stats API
+          const res = await fetch(`/api/stats?type=${type}&includeEquity=true&range=${range}`);
+          if (res.ok) {
+            const data = await res.json();
+            setChartData(data.equityData || []);
+          } else {
+            setChartData([]);
+          }
         }
       } catch (error) {
         console.error('Failed to fetch portfolio equity data', error);

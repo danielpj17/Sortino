@@ -88,7 +88,7 @@ const MetricCard: React.FC<MetricCardProps> = ({ title, value, subValue, icon, c
         {trend !== undefined && (
           <div className={`flex items-center gap-1 text-[10px] font-bold tracking-wider px-2 py-0.5 rounded-full ${trend >= 0 ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
             {trend >= 0 ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
-            {Math.abs(trend)}%
+            {Math.abs(trend).toFixed(2)}%
           </div>
         )}
       </div>
