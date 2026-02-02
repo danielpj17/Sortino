@@ -356,15 +356,18 @@ export async function executeTradingLoop(accountId) {
   }
 
   const buyingPower = parseFloat(account.buying_power) || 0;
+  const cash = parseFloat(account.cash) || 0;
   const portfolioValue = parseFloat(account.portfolio_value) || 0;
   const maxTradeValue = portfolioValue * (acc.max_position_size || 0.4);
-  const tradeValue = Math.min(maxTradeValue, buyingPower);
+  const isCashAccount = acc.account_type_display !== 'MARGIN';
+  const effectiveBuyingPower = isCashAccount ? cash : buyingPower;
+  const tradeValue = Math.min(maxTradeValue, effectiveBuyingPower);
   const allowShorting = !!acc.allow_shorting;
   const strategyName = acc.strategy_name || "Sortino Model";
   const strategyKey = STRATEGY_NAME_TO_KEY[strategyName] || "sortino";
 
   // #region agent log
-  fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:157',message:'Account financials',data:{accountId,buyingPower,portfolioValue,maxPositionSize:acc.max_position_size||0.4,maxTradeValue,tradeValue,allowShorting},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+  fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:157',message:'Account financials',data:{accountId,buyingPower,cash,portfolioValue,maxPositionSize:acc.max_position_size||0.4,maxTradeValue,tradeValue,allowShorting,account_type_display:acc.account_type_display,effectiveBuyingPower,isCashAccount},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
   // #endregion
 
   const results = [];

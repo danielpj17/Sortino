@@ -193,8 +193,11 @@ export default async function handler(req, res) {
     const historyData = results[3];
 
     const portfolio_value = parseFloat(accountData.portfolio_value) || 0;
-    const buying_power = parseFloat(accountData.buying_power) || 0;
+    let buying_power = parseFloat(accountData.buying_power) || 0;
     const cash = parseFloat(accountData.cash) || 0;
+    if (acc.account_type_display === 'CASH') {
+      buying_power = cash;
+    }
 
     const positions = Array.isArray(positionsData)
       ? positionsData.map((p) => ({
