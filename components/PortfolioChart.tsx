@@ -281,7 +281,7 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({
               formatter={(value: number) => [`$${value.toLocaleString()}`, 'Portfolio Value']}
             />
             <Area 
-              type="monotone" 
+              type="linear" 
               dataKey="value" 
               stroke={accent === 'rose' ? '#f43f5e' : '#86c7f3'}
               strokeWidth={3}
