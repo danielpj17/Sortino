@@ -83,18 +83,23 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({ type = 'Paper', account
     const sorted = [...chartData].sort(
       (a, b) => new Date(a.time).getTime() - new Date(b.time).getTime()
     );
-    const firstTime = new Date(sorted[0].time).getTime();
-    const firstValue = sorted[0].value;
+    // Use first meaningful balance (e.g. opening deposit), not the first timestamp's value which can be 0 or negative
+    const firstMeaningful = sorted.find((p) => (p.value ?? 0) > 0) ?? sorted[0];
+    const firstMeaningfulValue = firstMeaningful.value;
+    const firstMeaningfulTime = new Date(firstMeaningful.time).getTime();
     const lastPoint = sorted[sorted.length - 1];
     const lastTime = new Date(lastPoint.time).getTime();
     const rangeStartMs = rangeStart.getTime();
     const rangeEndMs = rangeEnd.getTime();
 
     const extended: { time: string; value: number }[] = [];
-    if (firstTime > rangeStartMs) {
-      extended.push({ time: rangeStart.toISOString(), value: firstValue });
+    if (firstMeaningfulTime > rangeStartMs) {
+      extended.push({ time: rangeStart.toISOString(), value: firstMeaningfulValue });
     }
-    extended.push(...sorted);
+    // Drop leading zero/negative points so the line is flat at opening balance until first real data
+    extended.push(
+      ...sorted.filter((p) => new Date(p.time).getTime() >= firstMeaningfulTime)
+    );
     // Only append "now" if last point is at least 1 minute before rangeEnd to avoid duplicate end point
     if (lastTime < rangeEndMs - 60 * 1000) {
       const endValue = currentEquity ?? lastPoint.value;
