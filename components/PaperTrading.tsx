@@ -285,23 +285,29 @@ const PaperTrading: React.FC = () => {
   );
   const alpacaOpenPositions = (portfolioData?.positions ?? [])
     .filter((p) => !recentCompletedSymbols.has(p.symbol))
-    .map((p) => ({
-    buyTrade: {
-      id: p.symbol,
-      ticker: p.symbol,
-      price: p.avg_entry_price,
-      quantity: p.qty,
-      timestamp: '',
-      action: 'BUY' as const,
-      strategy: '',
-      pnl: 0,
-      account_id: selectedAccountId ?? '',
-      company_name: p.symbol,
-    },
-    marketPrice: p.current_price || marketPrices[p.symbol],
-    positionValue: p.market_value,
-    pnl: p.unrealized_pl,
-  }));
+    .map((p) => {
+      const buyTradeFromDb = [...trades]
+        .filter((t) => t.ticker === p.symbol && t.action === 'BUY')
+        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())[0];
+      const buyTimestamp = buyTradeFromDb?.timestamp ?? '';
+      return {
+        buyTrade: {
+          id: p.symbol,
+          ticker: p.symbol,
+          price: p.avg_entry_price,
+          quantity: p.qty,
+          timestamp: buyTimestamp,
+          action: 'BUY' as const,
+          strategy: '',
+          pnl: 0,
+          account_id: selectedAccountId ?? '',
+          company_name: p.symbol,
+        },
+        marketPrice: p.current_price || marketPrices[p.symbol],
+        positionValue: p.market_value,
+        pnl: p.unrealized_pl,
+      };
+    });
   const alpacaCompletedTrades = (portfolioData?.completedTrades ?? []).map((ct) => ({
     buyTrade: {
       id: `${ct.symbol}-${ct.buyTime}`,
@@ -503,7 +509,7 @@ const PaperTrading: React.FC = () => {
                   : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
               } rounded-lg`}
             >
-              POSITIONS
+              CURRENT
             </button>
             <button
               onClick={() => setViewMode('COMPLETED')}
@@ -536,7 +542,7 @@ const PaperTrading: React.FC = () => {
               {displayedPositions.length === 0 ? (
                 <tr>
                   <td colSpan={viewMode === 'COMPLETED' ? 9 : 8} className="px-6 py-8 text-center text-zinc-600">
-                    {viewMode === 'POSITIONS' ? 'No open positions.' : 'No completed trades.'}
+                    {viewMode === 'POSITIONS' ? 'No current positions.' : 'No completed trades.'}
                   </td>
                 </tr>
               ) : (
