@@ -40,6 +40,7 @@ const PaperTrading: React.FC = () => {
     cash: number;
     positions?: Array<{ symbol: string; qty: number; side: string; market_value: number; unrealized_pl: number; avg_entry_price: number; current_price: number }>;
     completedTrades?: Array<{ symbol: string; qty: number; buyPrice: number; sellPrice: number; buyTime: string; sellTime: string; pnl: number }>;
+    activities?: Array<{ symbol?: string; symbol_id?: string; side?: string; transaction_time?: string; trade_time?: string; created_at?: string }>;
   } | null>(null);
   const [isAccountDropdownOpen, setIsAccountDropdownOpen] = useState(false);
   const [viewMode, setViewMode] = useState<'POSITIONS' | 'COMPLETED'>('POSITIONS');
@@ -115,6 +116,7 @@ const PaperTrading: React.FC = () => {
             cash: data.cash ?? 0,
             positions: data.positions ?? [],
             completedTrades: data.completedTrades ?? [],
+            activities: data.activities ?? [],
           });
         } else {
           setPortfolioData(null);
@@ -286,10 +288,22 @@ const PaperTrading: React.FC = () => {
   const alpacaOpenPositions = (portfolioData?.positions ?? [])
     .filter((p) => !recentCompletedSymbols.has(p.symbol))
     .map((p) => {
-      const buyTradeFromDb = [...trades]
-        .filter((t) => t.ticker === p.symbol && t.action === 'BUY')
-        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())[0];
-      const buyTimestamp = buyTradeFromDb?.timestamp ?? '';
+      const activities = portfolioData?.activities ?? [];
+      const buyFill = activities
+        .filter((a) => (a.symbol || a.symbol_id) === p.symbol && (a.side || '').toLowerCase() === 'buy')
+        .sort((a, b) => {
+          const ta = new Date(a.transaction_time || a.trade_time || a.created_at || 0).getTime();
+          const tb = new Date(b.transaction_time || b.trade_time || b.created_at || 0).getTime();
+          return ta - tb;
+        })[0];
+      const buyTimestamp = buyFill
+        ? (buyFill.transaction_time || buyFill.trade_time || buyFill.created_at || '')
+        : (() => {
+            const buyTradeFromDb = [...trades]
+              .filter((t) => t.ticker === p.symbol && t.action === 'BUY')
+              .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())[0];
+            return buyTradeFromDb?.timestamp ?? '';
+          })();
       return {
         buyTrade: {
           id: p.symbol,
