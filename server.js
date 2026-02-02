@@ -11,6 +11,7 @@ import tradesHandler from './api/trades.js';
 import accountsHandler from './api/accounts.js';
 import tradingHandler from './api/trading/index.js';
 import accountPortfolioHandler from './api/account-portfolio.js';
+import dashboardSummaryHandler from './api/dashboard-summary.js';
 
 dotenv.config();
 
@@ -56,6 +57,7 @@ app.post('/api/trading', wrap(tradingHandler));
 app.get('/api/stats', wrap(statsHandler));
 app.get('/api/trades', wrap(tradesHandler));
 app.get('/api/account-portfolio', wrap(accountPortfolioHandler));
+app.get('/api/dashboard-summary', wrap(dashboardSummaryHandler));
 
 // Catch-all for undefined API endpoints
 app.all('/api/*', (req, res) => {

@@ -12,24 +12,46 @@ import {
 } from 'recharts';
 import { TrendingUp, TrendingDown } from 'lucide-react';
 
-type TimeRange = '1D' | '1W' | '1M' | '1Y' | 'YTD';
+export type TimeRange = '1D' | '1W' | '1M' | '1Y' | 'YTD';
 
 interface PortfolioChartProps {
   type?: 'Paper' | 'Live';
   accountId?: string | null;
   currentEquity?: number;
+  /** Combined mode: pass pre-fetched history and control range from parent */
+  history?: { time: string; value: number }[];
+  range?: TimeRange;
+  onRangeChange?: (r: TimeRange) => void;
+  /** Accent color for combined mode: 'sky' (Paper) or 'rose' (Live) */
+  accent?: 'sky' | 'rose';
 }
 
-const PortfolioChart: React.FC<PortfolioChartProps> = ({ type = 'Paper', accountId, currentEquity }) => {
-  const [range, setRange] = useState<TimeRange>('1D');
-  const [chartData, setChartData] = useState<{ time: string, value: number }[]>([]);
+const PortfolioChart: React.FC<PortfolioChartProps> = ({
+  type = 'Paper',
+  accountId,
+  currentEquity,
+  history: historyProp,
+  range: rangeProp,
+  onRangeChange,
+  accent = 'sky',
+}) => {
+  const [rangeLocal, setRangeLocal] = useState<TimeRange>('1D');
+  const [chartData, setChartData] = useState<{ time: string; value: number }[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const isCombinedMode = Array.isArray(historyProp);
+  const range = rangeProp ?? rangeLocal;
+  const setRange = onRangeChange ?? setRangeLocal;
+  const dataSource = isCombinedMode ? (historyProp ?? []) : chartData;
+
   useEffect(() => {
+    if (isCombinedMode) {
+      setLoading(false);
+      return;
+    }
     const fetchData = async () => {
       setLoading(true);
       try {
-        // When accountId is provided (Paper/Live), fetch from Alpaca portfolio history
         if (accountId) {
           const res = await fetch(`/api/account-portfolio?account_id=${accountId}&include_portfolio_history=true&range=${range}`);
           if (res.ok) {
@@ -39,7 +61,6 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({ type = 'Paper', account
             setChartData([]);
           }
         } else {
-          // Fallback: no account selected, use stats API
           const res = await fetch(`/api/stats?type=${type}&includeEquity=true&range=${range}`);
           if (res.ok) {
             const data = await res.json();
@@ -55,15 +76,14 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({ type = 'Paper', account
         setLoading(false);
       }
     };
-    
     fetchData();
-    const interval = setInterval(fetchData, 30000); // Refresh every 30s
+    const interval = setInterval(fetchData, 30000);
     return () => clearInterval(interval);
-  }, [type, accountId, range]);
+  }, [type, accountId, range, isCombinedMode]);
 
   // Extend chart data: backfill from range start with first recorded balance, extend to "now" so X-axis spans full timeframe
   const formattedChartData = useMemo(() => {
-    if (chartData.length === 0) return [];
+    if (dataSource.length === 0) return [];
 
     const now = new Date();
     let rangeStart = new Date();
@@ -80,7 +100,7 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({ type = 'Paper', account
     }
     const rangeEnd = now;
 
-    const sorted = [...chartData].sort(
+    const sorted = [...dataSource].sort(
       (a, b) => new Date(a.time).getTime() - new Date(b.time).getTime()
     );
     // Use first meaningful balance (e.g. opening deposit), not the first timestamp's value which can be 0 or negative
@@ -145,7 +165,7 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({ type = 'Paper', account
         };
       })
       .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-  }, [chartData, range, currentEquity]);
+  }, [dataSource, range, currentEquity]);
 
   const stats = useMemo(() => {
     if (formattedChartData.length === 0) {
@@ -172,8 +192,10 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({ type = 'Paper', account
                 key={t}
                 onClick={() => setRange(t)}
                 className={`px-3 py-1.5 rounded-md text-[10px] font-black uppercase tracking-widest transition-all ${
-                  range === t 
-                    ? 'bg-[#86c7f3] text-black shadow-lg shadow-[#86c7f3]/20' 
+                  range === t
+                    ? accent === 'rose'
+                      ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/20'
+                      : 'bg-[#86c7f3] text-black shadow-lg shadow-[#86c7f3]/20'
                     : 'text-zinc-500 hover:text-zinc-300'
                 }`}
               >
@@ -206,9 +228,9 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({ type = 'Paper', account
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={formattedChartData}>
             <defs>
-              <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#86c7f3" stopOpacity={0.15}/>
-                <stop offset="95%" stopColor="#86c7f3" stopOpacity={0}/>
+              <linearGradient id={accent === 'rose' ? 'colorValueRose' : 'colorValueSky'} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor={accent === 'rose' ? '#f43f5e' : '#86c7f3'} stopOpacity={0.15}/>
+                <stop offset="95%" stopColor={accent === 'rose' ? '#f43f5e' : '#86c7f3'} stopOpacity={0}/>
               </linearGradient>
             </defs>
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#262626" />
@@ -251,17 +273,17 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({ type = 'Paper', account
             )}
             <Tooltip 
               contentStyle={{ backgroundColor: '#171717', border: '1px solid #262626', borderRadius: '12px', color: '#f5f5f5', fontSize: '11px', fontWeight: 'bold' }}
-              itemStyle={{ color: '#86c7f3' }}
+              itemStyle={{ color: accent === 'rose' ? '#f43f5e' : '#86c7f3' }}
               cursor={{ stroke: '#404040', strokeWidth: 1 }}
               formatter={(value: number) => [`$${value.toLocaleString()}`, 'Portfolio Value']}
             />
             <Area 
               type="monotone" 
               dataKey="value" 
-              stroke="#86c7f3" 
+              stroke={accent === 'rose' ? '#f43f5e' : '#86c7f3'}
               strokeWidth={3}
               fillOpacity={1} 
-              fill="url(#colorValue)" 
+              fill={`url(#${accent === 'rose' ? 'colorValueRose' : 'colorValueSky'})`}
               animationDuration={800}
             />
           </AreaChart>
