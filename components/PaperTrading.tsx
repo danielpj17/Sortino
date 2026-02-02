@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import MetricsGrid from './MetricsGrid';
 import PortfolioChart from './PortfolioChart';
 import BotTile from './BotTile';
+import { getCompanyName } from '../lib/ticker-names';
 import { Clock, ShieldCheck, ChevronDown } from 'lucide-react';
 
 interface Trade {
@@ -515,7 +516,7 @@ const PaperTrading: React.FC = () => {
                 <th className="px-6 py-4">ASSET</th>
                 <th className="px-6 py-4">BUY EVENT</th>
                 <th className="px-6 py-4 text-center">QTY</th>
-                <th className="px-6 py-4">MARKET</th>
+                {viewMode === 'POSITIONS' && <th className="px-6 py-4">MARKET</th>}
                 <th className="px-6 py-4">POSITION VALUE</th>
                 {viewMode === 'COMPLETED' && <th className="px-6 py-4">SELL EVENT</th>}
                 <th className="px-6 py-4">PNL</th>
@@ -535,7 +536,9 @@ const PaperTrading: React.FC = () => {
                   const buy = pos.buyTrade;
                   const sell = pos.sellTrade;
                   const marketPrice = pos.marketPrice || marketPrices[buy.ticker];
-                  const positionValue = pos.positionValue || (marketPrice ? marketPrice * buy.quantity : undefined);
+                  const positionValue = viewMode === 'COMPLETED' && sell
+                    ? sell.price * sell.quantity
+                    : pos.positionValue || (marketPrice ? marketPrice * buy.quantity : undefined);
                   const pnl = pos.pnl !== undefined ? pos.pnl : (marketPrice ? (marketPrice - buy.price) * buy.quantity : undefined);
                   
                   return (
@@ -543,22 +546,23 @@ const PaperTrading: React.FC = () => {
                       <td className="px-6 py-5">
                         <div className="flex flex-col">
                           <span className="font-bold text-zinc-100 text-sm">{buy.ticker}</span>
-                          <span className="text-xs text-zinc-500 font-medium">{buy.company_name || buy.ticker}</span>
+                          <span className="text-xs text-zinc-500 font-medium">{getCompanyName(buy.ticker, buy.company_name)}</span>
                         </div>
                       </td>
                       <td className="px-6 py-5">
                         <div className="flex flex-col gap-1">
-                          <span className="px-2 py-1 rounded text-[10px] font-black uppercase bg-emerald-500 text-white w-fit">
-                            BUY
+                          <span className="inline-flex items-center justify-center min-w-[6rem] w-[6rem] px-2 py-1 rounded text-[10px] font-black bg-emerald-500 text-white">
+                            ${Number(buy.price).toFixed(2)}
                           </span>
                           <span className="text-xs text-zinc-400">{formatDateTime(buy.timestamp)}</span>
-                          <span className="text-xs font-bold text-zinc-200">${Number(buy.price).toFixed(2)}</span>
                         </div>
                       </td>
                       <td className="px-6 py-5 text-center text-sm font-semibold text-zinc-300">{buy.quantity}</td>
-                      <td className="px-6 py-5 text-sm font-bold text-zinc-200">
-                        {marketPrice ? `$${marketPrice.toFixed(2)}` : '--'}
-                      </td>
+                      {viewMode === 'POSITIONS' && (
+                        <td className="px-6 py-5 text-sm font-bold text-zinc-200">
+                          {marketPrice ? `$${marketPrice.toFixed(2)}` : '--'}
+                        </td>
+                      )}
                       <td className="px-6 py-5 text-sm font-bold text-[#86c7f3]">
                         {positionValue ? `$${positionValue.toFixed(2)}` : '--'}
                       </td>
@@ -566,11 +570,10 @@ const PaperTrading: React.FC = () => {
                         <td className="px-6 py-5">
                           {sell ? (
                             <div className="flex flex-col gap-1">
-                              <span className="px-2 py-1 rounded text-[10px] font-black uppercase bg-rose-500 text-white w-fit">
-                                SELL
+                              <span className="inline-flex items-center justify-center min-w-[6rem] w-[6rem] px-2 py-1 rounded text-[10px] font-black bg-rose-500 text-white">
+                                ${Number(sell.price).toFixed(2)}
                               </span>
                               <span className="text-xs text-zinc-400">{formatDateTime(sell.timestamp)}</span>
-                              <span className="text-xs font-bold text-zinc-200">${Number(sell.price).toFixed(2)}</span>
                             </div>
                           ) : (
                             <span className="text-zinc-600">--</span>
@@ -584,7 +587,7 @@ const PaperTrading: React.FC = () => {
                       }`}>
                         {pnl !== undefined ? (
                           <div className="flex flex-col gap-0.5">
-                            <span className="font-black text-sm">${pnl >= 0 ? '+' : ''}{pnl.toFixed(2)}</span>
+                            <span className="font-black text-sm">{pnl >= 0 ? '+' : '-'}${Math.abs(pnl).toFixed(2)}</span>
                             <span className="text-xs font-semibold opacity-90">
                               {(() => {
                                 const costBasis = buy.price * buy.quantity;
