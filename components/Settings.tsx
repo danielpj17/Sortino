@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  ShieldCheck, 
-  Activity, 
+  Wallet, 
   Plus, 
   Key, 
   Trash2, 
@@ -11,6 +10,7 @@ import {
   CheckCircle2,
   AlertCircle
 } from 'lucide-react';
+import MoneyBagIcon from './MoneyBagIcon';
 import { Account, AccountType } from '../types';
 
 const Settings: React.FC = () => {
@@ -147,7 +147,7 @@ const Settings: React.FC = () => {
           type="Paper"
           onAdd={() => openAddModal('Paper')}
           onDelete={(id) => deleteAccount(id, 'Paper')}
-          icon={<ShieldCheck className="text-sky-400" size={20} />}
+          icon={<Wallet className="text-sky-400" size={20} />}
         />
 
         {/* Live Trading Accounts */}
@@ -158,7 +158,7 @@ const Settings: React.FC = () => {
           type="Live"
           onAdd={() => openAddModal('Live')}
           onDelete={(id) => deleteAccount(id, 'Live')}
-          icon={<Activity className="text-rose-400" size={20} />}
+          icon={<MoneyBagIcon className="text-[#B99DEB]" size={20} />}
         />
 
         {/* Global API Limits / Info */}
@@ -181,8 +181,8 @@ const Settings: React.FC = () => {
           <div className="bg-[#181818] border border-zinc-800 w-full max-w-md rounded-2xl overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200">
             <div className="bg-[#171717] px-6 py-4 flex items-center justify-between border-b border-zinc-800">
               <div className="flex items-center gap-3">
-                <div className={`p-1.5 rounded-lg ${modalType === 'Paper' ? 'bg-sky-500/10 text-sky-400' : 'bg-rose-500/10 text-rose-400'}`}>
-                  {modalType === 'Paper' ? <ShieldCheck size={18} /> : <Activity size={18} />}
+                <div className={`p-1.5 rounded-lg ${modalType === 'Paper' ? 'bg-sky-500/10 text-sky-400' : 'bg-[#B99DEB]/10 text-[#B99DEB]'}`}>
+                  {modalType === 'Paper' ? <Wallet size={18} /> : <MoneyBagIcon size={18} />}
                 </div>
                 <span className="text-xs font-bold text-zinc-200 tracking-widest uppercase">Add {modalType} Alpaca Account</span>
               </div>
@@ -240,7 +240,7 @@ const Settings: React.FC = () => {
                   className={`w-full py-3 rounded-xl font-bold text-xs uppercase tracking-widest transition-all shadow-lg ${
                     modalType === 'Paper' 
                       ? 'bg-sky-400 text-black hover:bg-sky-300 shadow-sky-400/10' 
-                      : 'bg-rose-500 text-white hover:bg-rose-400 shadow-rose-500/10'
+                      : 'bg-[#B99DEB] text-white hover:opacity-90 shadow-[#B99DEB]/10'
                   }`}
                 >
                   Connect Alpaca Account
@@ -288,7 +288,7 @@ const AccountSection: React.FC<SectionProps> = ({ title, description, accounts, 
         {accounts.length === 0 ? (
           <div className="py-12 flex flex-col items-center justify-center text-center space-y-4 border-2 border-dashed border-zinc-800 rounded-2xl">
             <div className="p-4 bg-zinc-900/50 rounded-full text-zinc-600">
-              {type === 'Paper' ? <ShieldCheck size={32} /> : <Activity size={32} />}
+              {type === 'Paper' ? <Wallet size={32} /> : <MoneyBagIcon size={32} />}
             </div>
             <div className="space-y-1">
               <p className="text-sm font-bold text-zinc-300">No {type} Accounts Connected</p>

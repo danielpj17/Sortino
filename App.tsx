@@ -4,13 +4,13 @@ import { HashRouter as Router, Routes, Route, Link, useLocation, Navigate } from
 import { 
   LayoutDashboard, 
   History, 
-  Activity, 
   TrendingUp, 
   Settings as SettingsIcon, 
   Menu, 
   ChevronRight,
-  Cpu
+  Wallet
 } from 'lucide-react';
+import MoneyBagIcon from './components/MoneyBagIcon';
 import Dashboard from './components/Dashboard';
 import TradeHistory from './components/TradeHistory';
 import LiveTrading from './components/LiveTrading';
@@ -43,8 +43,8 @@ const App: React.FC = () => {
 
           <nav className="flex-1 px-4 py-4 space-y-1">
             <SidebarItem icon={<LayoutDashboard size={20} />} label="Dashboard" to="/dashboard" collapsed={!isSidebarOpen} />
-            <SidebarItem icon={<Cpu size={20} />} label="Paper Trading" to="/paper" collapsed={!isSidebarOpen} />
-            <SidebarItem icon={<Activity size={20} />} label="Live Trading" to="/live" collapsed={!isSidebarOpen} />
+            <SidebarItem icon={<Wallet size={20} />} label="Paper Trading" to="/paper" collapsed={!isSidebarOpen} />
+            <SidebarItem icon={<MoneyBagIcon size={20} />} label="Live Trading" to="/live" collapsed={!isSidebarOpen} />
             <SidebarItem icon={<History size={20} />} label="History" to="/history" collapsed={!isSidebarOpen} />
           </nav>
 

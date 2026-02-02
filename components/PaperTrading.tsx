@@ -4,7 +4,7 @@ import MetricsGrid from './MetricsGrid';
 import PortfolioChart from './PortfolioChart';
 import BotTile from './BotTile';
 import { getCompanyName } from '../lib/ticker-names';
-import { Clock, ShieldCheck, ChevronDown } from 'lucide-react';
+import { Clock, Wallet, ChevronDown } from 'lucide-react';
 
 interface Trade {
   id: number;
@@ -405,7 +405,7 @@ const PaperTrading: React.FC = () => {
             className={`flex items-center gap-3 bg-[#181818] border transition-all px-4 py-2.5 rounded-xl w-[200px] text-left group ${isAccountDropdownOpen ? 'border-[#86c7f3] ring-2 ring-[#86c7f3]/10' : 'border-zinc-800 hover:border-zinc-700'}`}
           >
             <div className="p-1.5 bg-[#86c7f3]/10 rounded-lg">
-              <ShieldCheck size={16} className="text-[#86c7f3]" />
+              <Wallet size={16} className="text-[#86c7f3]" />
             </div>
             <div className="flex-1 overflow-hidden">
               <p className="text-zinc-200 text-xs font-bold truncate leading-tight">

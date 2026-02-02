@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import PortfolioChart, { type TimeRange } from './PortfolioChart';
-import { ShieldCheck, Activity, Wallet, TrendingUp, TrendingDown } from 'lucide-react';
+import { Wallet, TrendingUp, TrendingDown } from 'lucide-react';
+import MoneyBagIcon from './MoneyBagIcon';
 
 interface DashboardAccount {
   id: string;
@@ -83,7 +84,7 @@ const Dashboard: React.FC = () => {
         <div className="flex flex-col gap-6">
           <div className="flex items-center gap-2">
             <div className="p-1.5 bg-[#86c7f3]/10 rounded-lg">
-              <ShieldCheck size={18} className="text-[#86c7f3]" />
+              <Wallet size={18} className="text-[#86c7f3]" />
             </div>
             <h2 className="text-lg font-semibold text-zinc-200">Paper Trading</h2>
           </div>
@@ -139,8 +140,8 @@ const Dashboard: React.FC = () => {
         {/* Right: Live Trading */}
         <div className="flex flex-col gap-6">
           <div className="flex items-center gap-2">
-            <div className="p-1.5 bg-rose-500/10 rounded-lg">
-              <Activity size={18} className="text-rose-400" />
+            <div className="p-1.5 bg-[#B99DEB]/10 rounded-lg">
+              <MoneyBagIcon size={18} className="text-[#B99DEB]" />
             </div>
             <h2 className="text-lg font-semibold text-zinc-200">Live Trading</h2>
           </div>
@@ -214,8 +215,8 @@ const AccountTile: React.FC<AccountTileProps> = ({ name, equity, gainDollars, ga
   const tileContent = (
     <>
       <div className="flex justify-between items-start mb-3">
-        <div className={`p-2 rounded-lg ${accent === 'rose' ? 'bg-rose-500/10 text-rose-400' : 'bg-[#86c7f3]/10 text-[#86c7f3]'}`}>
-          <Wallet size={18} />
+        <div className={`p-2 rounded-lg ${accent === 'rose' ? 'bg-[#B99DEB]/10 text-[#B99DEB]' : 'bg-[#86c7f3]/10 text-[#86c7f3]'}`}>
+          {accent === 'rose' ? <MoneyBagIcon size={18} /> : <Wallet size={18} />}
         </div>
         <div className={`flex items-center gap-1 text-[10px] font-bold tracking-wider px-2 py-0.5 rounded-full ${isPositive ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
           {isPositive ? <TrendingUp size={10} /> : <TrendingDown size={10} />}

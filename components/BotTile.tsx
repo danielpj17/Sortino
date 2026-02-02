@@ -2,14 +2,24 @@ import React, { useState, useEffect } from 'react';
 import { Settings, Play, FileText } from 'lucide-react';
 import ConfigureAgentModal from './ConfigureAgentModal';
 
+const LIVE_ACCENT = '#B99DEB';
+
 interface BotTileProps {
   accountId?: string | null;
   onStartBot?: () => void;
   onStopBot?: () => void;
   onViewLogs?: () => void;
+  /** When 'purple', use purple for stop/error accent (Live trading). Default keeps rose. */
+  accent?: 'rose' | 'purple';
 }
 
-const BotTile: React.FC<BotTileProps> = ({ accountId, onStartBot, onStopBot, onViewLogs }) => {
+const BotTile: React.FC<BotTileProps> = ({ accountId, onStartBot, onStopBot, onViewLogs, accent = 'rose' }) => {
+  const stopColor = accent === 'purple' ? LIVE_ACCENT : undefined;
+  const stopClasses = stopColor
+    ? `flex-1 text-white font-bold text-xs uppercase tracking-widest py-3 px-4 rounded-xl transition-colors disabled:opacity-50 hover:opacity-90`
+    : 'flex-1 bg-rose-500 hover:bg-rose-600 disabled:opacity-50 text-white font-bold text-xs uppercase tracking-widest py-3 px-4 rounded-xl transition-colors';
+  const statusErrorClass = accent === 'purple' ? 'text-[#B99DEB]' : 'text-rose-400';
+  const statusErrorMutedClass = accent === 'purple' ? 'text-[#B99DEB]/70' : 'text-rose-400/70';
   const [botStatus, setBotStatus] = useState({
     account_name: 'STANDARD STRATEGY',
     bot_name: 'ALPHA-01',
@@ -117,11 +127,11 @@ const BotTile: React.FC<BotTileProps> = ({ accountId, onStartBot, onStopBot, onV
         <div className="flex items-center justify-between">
           <span className="text-xs font-bold text-zinc-500 uppercase tracking-widest">API</span>
           <div className="flex flex-col items-end">
-            <span className={`text-sm font-bold ${botStatus.api_status === 'CONNECTED' ? 'text-emerald-400' : 'text-rose-400'}`}>
+            <span className={`text-sm font-bold ${botStatus.api_status === 'CONNECTED' ? 'text-emerald-400' : statusErrorClass}`}>
               {botStatus.api_status}
             </span>
             {botStatus.api_error && botStatus.api_status === 'DISCONNECTED' && (
-              <span className="text-[9px] text-rose-400/70 mt-0.5" title={botStatus.api_error}>
+              <span className={`text-[9px] ${statusErrorMutedClass} mt-0.5`} title={botStatus.api_error}>
                 {botStatus.api_error.length > 20 ? botStatus.api_error.substring(0, 20) + '...' : botStatus.api_error}
               </span>
             )}
@@ -139,7 +149,8 @@ const BotTile: React.FC<BotTileProps> = ({ accountId, onStartBot, onStopBot, onV
           <button
             onClick={handleStopBot}
             disabled={!accountId || botActionLoading}
-            className="flex-1 bg-rose-500 hover:bg-rose-600 disabled:opacity-50 text-white font-bold text-xs uppercase tracking-widest py-3 px-4 rounded-xl transition-colors"
+            className={stopClasses}
+            style={stopColor ? { backgroundColor: stopColor } : undefined}
           >
             <div className="flex items-center justify-center gap-2">
               {botActionLoading ? '…' : 'STOP BOT'}

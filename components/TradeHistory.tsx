@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Clock, ChevronDown, ShieldCheck, Activity, Download, Search } from 'lucide-react';
+import { Clock, ChevronDown, Wallet, Download, Search } from 'lucide-react';
+import MoneyBagIcon from './MoneyBagIcon';
 
 const TradeHistory: React.FC = () => {
   const [trades, setTrades] = useState<any[]>([]);
@@ -128,8 +129,8 @@ const TradeHistory: React.FC = () => {
               onClick={() => setIsTypeDropdownOpen(!isTypeDropdownOpen)}
               className={`flex items-center gap-3 bg-[#181818] border transition-all px-4 py-2.5 rounded-xl w-[160px] text-left group ${isTypeDropdownOpen ? 'border-[#86c7f3] ring-2 ring-[#86c7f3]/10' : 'border-zinc-800 hover:border-zinc-700'}`}
             >
-              <div className="p-1.5 bg-[#86c7f3]/10 rounded-lg">
-                {filterType === 'Live' ? <Activity size={16} className="text-[#86c7f3]" /> : <ShieldCheck size={16} className="text-[#86c7f3]" />}
+              <div className={`p-1.5 rounded-lg ${filterType === 'Live' ? 'bg-[#B99DEB]/10' : 'bg-[#86c7f3]/10'}`}>
+                {filterType === 'Live' ? <MoneyBagIcon size={16} className="text-[#B99DEB]" /> : <Wallet size={16} className="text-[#86c7f3]" />}
               </div>
               <div className="flex-1 overflow-hidden">
                 <p className="text-zinc-200 text-xs font-bold truncate leading-tight">{filterType}</p>
@@ -160,8 +161,8 @@ const TradeHistory: React.FC = () => {
               onClick={() => setIsAccountDropdownOpen(!isAccountDropdownOpen)}
               className={`flex items-center gap-3 bg-[#121212] border transition-all px-4 py-2.5 rounded-xl w-[200px] text-left group ${isAccountDropdownOpen ? 'border-[#86c7f3] ring-2 ring-[#86c7f3]/10' : 'border-zinc-800 hover:border-zinc-700'}`}
             >
-              <div className="p-1.5 bg-[#86c7f3]/10 rounded-lg">
-                <ShieldCheck size={16} className="text-[#86c7f3]" />
+              <div className={`p-1.5 rounded-lg ${filterType === 'Live' ? 'bg-[#B99DEB]/10' : 'bg-[#86c7f3]/10'}`}>
+                {filterType === 'Live' ? <MoneyBagIcon size={16} className="text-[#B99DEB]" /> : <Wallet size={16} className="text-[#86c7f3]" />}
               </div>
               <div className="flex-1 overflow-hidden">
                 <p className="text-zinc-200 text-xs font-bold truncate leading-tight">

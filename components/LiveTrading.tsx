@@ -4,7 +4,8 @@ import MetricsGrid from './MetricsGrid';
 import PortfolioChart from './PortfolioChart';
 import BotTile from './BotTile';
 import { getCompanyName } from '../lib/ticker-names';
-import { Activity, Clock, ChevronDown } from 'lucide-react';
+import { Clock, ChevronDown } from 'lucide-react';
+import MoneyBagIcon from './MoneyBagIcon';
 
 interface Trade {
   id: number;
@@ -397,8 +398,8 @@ const LiveTrading: React.FC = () => {
             onClick={() => setIsAccountDropdownOpen(!isAccountDropdownOpen)}
             className={`flex items-center gap-3 bg-[#181818] border transition-all px-4 py-2.5 rounded-xl w-[200px] text-left group ${isAccountDropdownOpen ? 'border-[#86c7f3] ring-2 ring-[#86c7f3]/10' : 'border-zinc-800 hover:border-zinc-700'}`}
           >
-            <div className="p-1.5 bg-rose-500/10 rounded-lg">
-              <Activity size={16} className="text-rose-400" />
+            <div className="p-1.5 bg-[#B99DEB]/10 rounded-lg">
+              <MoneyBagIcon size={16} className="text-[#B99DEB]" />
             </div>
             <div className="flex-1 overflow-hidden">
               <p className="text-zinc-200 text-xs font-bold truncate leading-tight">
@@ -442,6 +443,7 @@ const LiveTrading: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-1">
           <BotTile
+            accent="purple"
             accountId={selectedAccountId}
             onStartBot={async () => {
               if (!selectedAccountId) {
@@ -507,7 +509,7 @@ const LiveTrading: React.FC = () => {
       <div className="bg-[#181818] border border-zinc-800 rounded-2xl overflow-hidden">
         <div className="px-6 py-4 border-b border-zinc-800 flex items-center justify-between bg-[#171717]/50">
           <div className="flex items-center gap-3">
-            <Activity size={18} className="text-rose-400" />
+            <MoneyBagIcon size={18} className="text-[#B99DEB]" />
             <h2 className="text-base font-bold text-zinc-200 uppercase">TRADE LOG</h2>
           </div>
           <div className="flex gap-2">
@@ -594,7 +596,7 @@ const LiveTrading: React.FC = () => {
                         <td className="px-6 py-5">
                           {sell ? (
                             <div className="flex flex-col gap-1 items-center">
-                              <span className="inline-flex items-center justify-center min-w-[6rem] w-[6rem] px-2 py-1 rounded text-sm font-black bg-rose-500 text-white">
+                              <span className="inline-flex items-center justify-center min-w-[6rem] w-[6rem] px-2 py-1 rounded text-sm font-black bg-[#B99DEB] text-white">
                                 ${formatNumber(Number(sell.price), 2)}
                               </span>
                               <span className="text-xs text-zinc-400 text-center">{formatDateTime(sell.timestamp)}</span>
