@@ -568,12 +568,26 @@ const LiveTrading: React.FC = () => {
                           )}
                         </td>
                       )}
-                      <td className={`px-6 py-5 text-sm font-black ${
+                      <td className={`px-6 py-5 ${
                         pnl !== undefined 
                           ? (pnl >= 0 ? 'text-emerald-400' : 'text-rose-400')
                           : 'text-zinc-600'
                       }`}>
-                        {pnl !== undefined ? `${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}` : '--'}
+                        {pnl !== undefined ? (
+                          <div className="flex flex-col gap-0.5">
+                            <span className="font-black text-sm">${pnl >= 0 ? '+' : ''}{pnl.toFixed(2)}</span>
+                            <span className="text-xs font-semibold opacity-90">
+                              {(() => {
+                                const costBasis = buy.price * buy.quantity;
+                                if (costBasis <= 0) return '--';
+                                const pct = (pnl / costBasis) * 100;
+                                return `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`;
+                              })()}
+                            </span>
+                          </div>
+                        ) : (
+                          '--'
+                        )}
                       </td>
                       <td className="px-6 py-5 text-sm text-zinc-400">
                         {formatHoldDuration(buy.timestamp, sell?.timestamp)}
