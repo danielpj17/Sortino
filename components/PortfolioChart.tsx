@@ -61,42 +61,84 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({ type = 'Paper', account
     return () => clearInterval(interval);
   }, [type, accountId, range]);
 
-  // Format chart data with local timezone
+  // Extend chart data: backfill from range start with first recorded balance, extend to "now" so X-axis spans full timeframe
   const formattedChartData = useMemo(() => {
     if (chartData.length === 0) return [];
-    
-    return chartData.map((point: any) => {
-      const date = new Date(point.time);
-      let timeLabel = '';
-      
-      if (range === '1D') {
-        // For 1D, show time in 12-hour format with AM/PM like stock charts
-        const hours = date.getHours();
-        const minutes = date.getMinutes();
-        const ampm = hours >= 12 ? 'PM' : 'AM';
-        const displayHours = hours % 12 || 12;
-        timeLabel = minutes === 0 
-          ? `${displayHours}:00 ${ampm}` 
-          : `${displayHours}:${minutes.toString().padStart(2, '0')} ${ampm}`;
-      } else if (range === '1W') {
-        timeLabel = date.toLocaleDateString('en-US', { weekday: 'short' });
-      } else if (range === '1M') {
-        timeLabel = date.toLocaleDateString('en-US', { day: '2-digit', month: 'short' });
-      } else if (range === '1Y') {
-        timeLabel = date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
-      } else if (range === 'YTD') {
-        timeLabel = date.toLocaleDateString('en-US', { month: 'short' });
-      } else {
-        timeLabel = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
-      }
-      
-      return {
-        time: timeLabel,
-        value: point.value,
-        timestamp: point.time // Keep original timestamp for sorting
-      };
-    }).sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-  }, [chartData, range]);
+
+    const now = new Date();
+    let rangeStart = new Date();
+    if (range === '1D') {
+      rangeStart = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    } else if (range === '1W') {
+      rangeStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    } else if (range === '1M') {
+      rangeStart = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    } else if (range === '1Y') {
+      rangeStart = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+    } else if (range === 'YTD') {
+      rangeStart = new Date(now.getFullYear(), 0, 1);
+    }
+    const rangeEnd = now;
+
+    const sorted = [...chartData].sort(
+      (a, b) => new Date(a.time).getTime() - new Date(b.time).getTime()
+    );
+    const firstTime = new Date(sorted[0].time).getTime();
+    const firstValue = sorted[0].value;
+    const lastPoint = sorted[sorted.length - 1];
+    const lastTime = new Date(lastPoint.time).getTime();
+    const rangeStartMs = rangeStart.getTime();
+    const rangeEndMs = rangeEnd.getTime();
+
+    const extended: { time: string; value: number }[] = [];
+    if (firstTime > rangeStartMs) {
+      extended.push({ time: rangeStart.toISOString(), value: firstValue });
+    }
+    extended.push(...sorted);
+    // Only append "now" if last point is at least 1 minute before rangeEnd to avoid duplicate end point
+    if (lastTime < rangeEndMs - 60 * 1000) {
+      const endValue = currentEquity ?? lastPoint.value;
+      extended.push({ time: rangeEnd.toISOString(), value: endValue });
+    }
+
+    return extended
+      .map((point: { time: string; value: number }) => {
+        const date = new Date(point.time);
+        let timeLabel = '';
+
+        if (range === '1D') {
+          const hours = date.getHours();
+          const minutes = date.getMinutes();
+          const ampm = hours >= 12 ? 'PM' : 'AM';
+          const displayHours = hours % 12 || 12;
+          timeLabel =
+            minutes === 0
+              ? `${displayHours}:00 ${ampm}`
+              : `${displayHours}:${minutes.toString().padStart(2, '0')} ${ampm}`;
+        } else if (range === '1W') {
+          timeLabel = date.toLocaleDateString('en-US', { weekday: 'short' });
+        } else if (range === '1M') {
+          timeLabel = date.toLocaleDateString('en-US', { day: '2-digit', month: 'short' });
+        } else if (range === '1Y') {
+          timeLabel = date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+        } else if (range === 'YTD') {
+          timeLabel = date.toLocaleDateString('en-US', { month: 'short' });
+        } else {
+          timeLabel = date.toLocaleTimeString('en-US', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false,
+          });
+        }
+
+        return {
+          time: timeLabel,
+          value: point.value,
+          timestamp: point.time,
+        };
+      })
+      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  }, [chartData, range, currentEquity]);
 
   const stats = useMemo(() => {
     if (formattedChartData.length === 0) {
