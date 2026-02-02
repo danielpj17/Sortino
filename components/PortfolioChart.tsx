@@ -125,9 +125,11 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({ type = 'Paper', account
         } else if (range === '1M') {
           timeLabel = date.toLocaleDateString('en-US', { day: '2-digit', month: 'short' });
         } else if (range === '1Y') {
-          timeLabel = date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+          // Month + 2-digit year so "Jan 25" is clearly January 2025, not day 25
+          timeLabel = `${date.toLocaleDateString('en-US', { month: 'short' })} '${String(date.getFullYear()).slice(-2)}`;
         } else if (range === 'YTD') {
-          timeLabel = date.toLocaleDateString('en-US', { month: 'short' });
+          // Month + day so we see progression within the month (e.g. "Jan 1", "Jan 15", "Feb 1")
+          timeLabel = date.toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
         } else {
           timeLabel = date.toLocaleTimeString('en-US', {
             hour: '2-digit',
@@ -216,7 +218,15 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({ type = 'Paper', account
               tickLine={false} 
               tick={{ fill: '#737373', fontSize: 10, fontWeight: 600 }} 
               dy={10}
-              interval={range === '1D' ? 'preserveStartEnd' : 'auto'}
+              interval={
+                range === '1D'
+                  ? 'preserveStartEnd'
+                  : range === '1Y'
+                    ? Math.max(0, Math.floor((formattedChartData.length - 1) / 12))
+                    : range === 'YTD'
+                      ? Math.max(0, Math.floor((formattedChartData.length - 1) / 6))
+                      : 'auto'
+              }
             />
             <YAxis 
               axisLine={false} 
