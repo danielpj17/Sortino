@@ -57,6 +57,7 @@ const App: React.FC = () => {
         <main className="flex-1 overflow-y-auto bg-[#0d0d0d] p-8">
           <Routes>
             <Route path="/" element={<Dashboard />} />
+            <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/paper" element={<PaperTrading />} />
             <Route path="/live" element={<LiveTrading />} />
             <Route path="/history" element={<TradeHistory />} />
