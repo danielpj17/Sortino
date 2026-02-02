@@ -241,18 +241,26 @@ const LiveTrading: React.FC = () => {
         });
   };
 
+  const formatNumber = (n: number, decimals = 0) =>
+    n.toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+
   const formatHoldDuration = (buyTime: string, sellTime?: string) => {
-    if (!sellTime) return '--';
+    if (!buyTime) return '--';
     const buy = new Date(buyTime);
-    const sell = new Date(sellTime);
-    const diffMs = sell.getTime() - buy.getTime();
-    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-    const diffDays = Math.floor(diffHours / 24);
-    
-    if (diffDays > 0) return `${diffDays}d`;
-    if (diffHours > 0) return `${diffHours}h`;
+    if (isNaN(buy.getTime())) return '--';
+    const end = sellTime ? new Date(sellTime) : new Date();
+    const diffMs = end.getTime() - buy.getTime();
+    if (diffMs < 0) return '--';
     const diffMins = Math.floor(diffMs / (1000 * 60));
-    return `${diffMins}m`;
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+    const hours = diffHours % 24;
+    const mins = diffMins % 60;
+    const parts: string[] = [];
+    if (diffDays > 0) parts.push(`${diffDays}d`);
+    if (hours > 0) parts.push(`${hours}h`);
+    if (mins > 0 || parts.length === 0) parts.push(`${mins}m`);
+    return parts.join(' ');
   };
 
   const dbPositions = matchTrades();
@@ -541,30 +549,30 @@ const LiveTrading: React.FC = () => {
                         </div>
                       </td>
                       <td className="px-6 py-5">
-                        <div className="flex flex-col gap-1">
-                          <span className="inline-flex items-center justify-center min-w-[6rem] w-[6rem] px-2 py-1 rounded text-[10px] font-black bg-emerald-500 text-white">
-                            ${Number(buy.price).toFixed(2)}
+                        <div className="flex flex-col gap-1 items-center">
+                          <span className="inline-flex items-center justify-center min-w-[6rem] w-[6rem] px-2 py-1 rounded text-sm font-black bg-emerald-500 text-white">
+                            ${formatNumber(Number(buy.price), 2)}
                           </span>
-                          <span className="text-xs text-zinc-400">{formatDateTime(buy.timestamp)}</span>
+                          <span className="text-xs text-zinc-400 text-center">{formatDateTime(buy.timestamp)}</span>
                         </div>
                       </td>
-                      <td className="px-6 py-5 text-center text-sm font-semibold text-zinc-300">{buy.quantity}</td>
+                      <td className="px-6 py-5 text-center text-sm font-semibold text-zinc-300">{formatNumber(buy.quantity)}</td>
                       {viewMode === 'POSITIONS' && (
                         <td className="px-6 py-5 text-sm font-bold text-zinc-200">
-                          {marketPrice ? `$${marketPrice.toFixed(2)}` : '--'}
+                          {marketPrice ? `$${formatNumber(marketPrice, 2)}` : '--'}
                         </td>
                       )}
                       <td className="px-6 py-5 text-sm font-bold text-[#86c7f3]">
-                        {positionValue ? `$${positionValue.toFixed(2)}` : '--'}
+                        {positionValue ? `$${formatNumber(positionValue, 2)}` : '--'}
                       </td>
                       {viewMode === 'COMPLETED' && (
                         <td className="px-6 py-5">
                           {sell ? (
-                            <div className="flex flex-col gap-1">
-                              <span className="inline-flex items-center justify-center min-w-[6rem] w-[6rem] px-2 py-1 rounded text-[10px] font-black bg-rose-500 text-white">
-                                ${Number(sell.price).toFixed(2)}
+                            <div className="flex flex-col gap-1 items-center">
+                              <span className="inline-flex items-center justify-center min-w-[6rem] w-[6rem] px-2 py-1 rounded text-sm font-black bg-rose-500 text-white">
+                                ${formatNumber(Number(sell.price), 2)}
                               </span>
-                              <span className="text-xs text-zinc-400">{formatDateTime(sell.timestamp)}</span>
+                              <span className="text-xs text-zinc-400 text-center">{formatDateTime(sell.timestamp)}</span>
                             </div>
                           ) : (
                             <span className="text-zinc-600">--</span>
@@ -578,7 +586,7 @@ const LiveTrading: React.FC = () => {
                       }`}>
                         {pnl !== undefined ? (
                           <div className="flex flex-col gap-0.5">
-                            <span className="font-black text-sm">{pnl >= 0 ? '+' : '-'}${Math.abs(pnl).toFixed(2)}</span>
+                            <span className="font-black text-sm">{pnl >= 0 ? '+' : '-'}${formatNumber(Math.abs(pnl), 2)}</span>
                             <span className="text-xs font-semibold opacity-90">
                               {(() => {
                                 const costBasis = buy.price * buy.quantity;
