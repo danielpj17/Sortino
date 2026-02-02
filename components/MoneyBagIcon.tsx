@@ -5,7 +5,7 @@ interface MoneyBagIconProps {
   className?: string;
 }
 
-/** Line-art money bag with dollar sign — used for all Live Trading UI. */
+/** Money bag: outline only (no fill). Sack with gathered top + dollar sign. Live Trading UI. */
 const MoneyBagIcon: React.FC<MoneyBagIconProps> = ({ size = 24, className = '' }) => (
   <svg
     xmlns="http://www.w3.org/2000/svg"
@@ -19,13 +19,11 @@ const MoneyBagIcon: React.FC<MoneyBagIconProps> = ({ size = 24, className = '' }
     strokeLinejoin="round"
     className={className}
   >
-    {/* Sack: bulbous bottom, cinched neck */}
-    <path d="M5 8h14l-1.5 12H6.5L5 8z" />
-    <path d="M8 8V6a4 4 0 0 1 8 0v2" />
-    {/* Dollar sign on front */}
-    <path d="M12 11v6" />
-    <path d="M12 6v1" />
-    <path d="M14 14h-2a1 1 0 0 0 0 2h2a1 1 0 0 1 0 2h-2" />
+    {/* Bag: outline only, no fill. Gathered top, rounded sack. */}
+    <path fill="none" d="M9 6 L7.5 7.5 Q6 11 7 17 Q9 20 12 20 Q15 20 17 17 Q18 11 16.5 7.5 L15 6 Q12 5 9 6 Z" />
+    {/* Dollar sign: outline only */}
+    <path fill="none" d="M12 8v1M12 15v1" />
+    <path fill="none" d="M13.5 11h-3a1 1 0 0 0 0 2h3a1 1 0 0 1 0 2h-3" />
   </svg>
 );
 

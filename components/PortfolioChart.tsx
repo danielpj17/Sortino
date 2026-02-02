@@ -194,7 +194,7 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({
                 className={`px-3 py-1.5 rounded-md text-[10px] font-black uppercase tracking-widest transition-all ${
                   range === t
                     ? accent === 'rose'
-                      ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/20'
+                      ? 'bg-[#B99DEB] text-white shadow-lg shadow-[#B99DEB]/20'
                       : 'bg-[#86c7f3] text-black shadow-lg shadow-[#86c7f3]/20'
                     : 'text-zinc-500 hover:text-zinc-300'
                 }`}
