@@ -101,6 +101,8 @@ const PaperTrading: React.FC = () => {
       setPortfolioData(null);
       return;
     }
+    // Clear stale data immediately when account changes
+    setPortfolioData(null);
     const fetchPortfolio = async () => {
       try {
         const res = await fetch(`/api/account-portfolio?account_id=${selectedAccountId}&include_activities=true`);
@@ -231,10 +233,18 @@ const PaperTrading: React.FC = () => {
     return positions;
   };
 
-  const formatTime = (timestamp: string) => {
+  const formatDateTime = (timestamp: string) => {
     if (!timestamp) return '--';
     const date = new Date(timestamp);
-    return isNaN(date.getTime()) ? '--' : date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+    return isNaN(date.getTime())
+      ? '--'
+      : date.toLocaleString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false,
+        });
   };
 
   const formatHoldDuration = (buyTime: string, sellTime?: string) => {
@@ -256,7 +266,17 @@ const PaperTrading: React.FC = () => {
   const dbCompletedTrades = dbPositions.filter((p) => p.sellTrade);
 
   const useAlpacaData = portfolioData?.positions !== undefined && portfolioData?.completedTrades !== undefined;
-  const alpacaOpenPositions = (portfolioData?.positions ?? []).map((p) => ({
+  const recentCompletedSymbols = new Set(
+    (portfolioData?.completedTrades ?? [])
+      .filter((ct) => {
+        const sellTime = new Date(ct.sellTime).getTime();
+        return Date.now() - sellTime < 2 * 60 * 1000; // 2 minutes
+      })
+      .map((ct) => ct.symbol)
+  );
+  const alpacaOpenPositions = (portfolioData?.positions ?? [])
+    .filter((p) => !recentCompletedSymbols.has(p.symbol))
+    .map((p) => ({
     buyTrade: {
       id: p.symbol,
       ticker: p.symbol,
@@ -503,7 +523,7 @@ const PaperTrading: React.FC = () => {
                 <th className="px-6 py-4 text-right">ID</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-zinc-800/50">
+            <tbody key={viewMode} className="divide-y divide-zinc-800/50">
               {displayedPositions.length === 0 ? (
                 <tr>
                   <td colSpan={viewMode === 'COMPLETED' ? 9 : 8} className="px-6 py-8 text-center text-zinc-600">
@@ -531,7 +551,7 @@ const PaperTrading: React.FC = () => {
                           <span className="px-2 py-1 rounded text-[10px] font-black uppercase bg-emerald-500 text-white w-fit">
                             BUY
                           </span>
-                          <span className="text-xs text-zinc-400">{formatTime(buy.timestamp)}</span>
+                          <span className="text-xs text-zinc-400">{formatDateTime(buy.timestamp)}</span>
                           <span className="text-xs font-bold text-zinc-200">${Number(buy.price).toFixed(2)}</span>
                         </div>
                       </td>
@@ -549,7 +569,7 @@ const PaperTrading: React.FC = () => {
                               <span className="px-2 py-1 rounded text-[10px] font-black uppercase bg-rose-500 text-white w-fit">
                                 SELL
                               </span>
-                              <span className="text-xs text-zinc-400">{formatTime(sell.timestamp)}</span>
+                              <span className="text-xs text-zinc-400">{formatDateTime(sell.timestamp)}</span>
                               <span className="text-xs font-bold text-zinc-200">${Number(sell.price).toFixed(2)}</span>
                             </div>
                           ) : (
