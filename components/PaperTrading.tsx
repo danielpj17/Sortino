@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import MetricsGrid from './MetricsGrid';
 import PortfolioChart from './PortfolioChart';
 import BotTile from './BotTile';
@@ -47,9 +48,12 @@ const PaperTrading: React.FC = () => {
   const [marketPrices, setMarketPrices] = useState<Record<string, number>>({});
   const accountDropdownRef = useRef<HTMLDivElement>(null);
   const hasAutoSelectedAccount = useRef(false);
+  const [searchParams] = useSearchParams();
 
   // Load accounts from database (accounts must exist in DB for bot to work)
   useEffect(() => {
+    const accountIdFromUrl = searchParams.get('account_id');
+
     const loadAccounts = async () => {
       try {
         const res = await fetch('/api/accounts');
@@ -57,8 +61,11 @@ const PaperTrading: React.FC = () => {
           const data = await res.json();
           const dbAccounts = Array.isArray(data) ? data.filter((a: any) => a.type === 'Paper') : [];
           setAccounts(dbAccounts);
-          // Auto-select: prefer "Sortino Model", else first account. Always select when accounts exist.
-          if (!hasAutoSelectedAccount.current && dbAccounts.length > 0) {
+          // If URL has account_id and it's in the list, select it (e.g. from dashboard tile click)
+          if (accountIdFromUrl && dbAccounts.some((a: any) => a.id === accountIdFromUrl)) {
+            hasAutoSelectedAccount.current = true;
+            setSelectedAccountId(accountIdFromUrl);
+          } else if (!hasAutoSelectedAccount.current && dbAccounts.length > 0) {
             hasAutoSelectedAccount.current = true;
             const sortinoAccount = dbAccounts.find((a: any) =>
               a.name && String(a.name).toLowerCase().includes('sortino')
@@ -71,10 +78,8 @@ const PaperTrading: React.FC = () => {
       }
     };
 
-    // Load accounts on mount
     loadAccounts();
 
-    // Reload accounts when window regains focus (in case accounts were updated in another tab)
     const handleFocus = () => {
       loadAccounts();
     };
@@ -84,7 +89,7 @@ const PaperTrading: React.FC = () => {
     return () => {
       window.removeEventListener('focus', handleFocus);
     };
-  }, []);
+  }, [searchParams]);
 
   // Close dropdown on outside click
   useEffect(() => {

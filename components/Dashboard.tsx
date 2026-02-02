@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import PortfolioChart, { type TimeRange } from './PortfolioChart';
 import { ShieldCheck, Activity, Wallet, TrendingUp, TrendingDown } from 'lucide-react';
 
@@ -123,6 +124,7 @@ const Dashboard: React.FC = () => {
                     gainDollars={acc.gainDollars}
                     gainPercent={acc.gainPercent}
                     accent="sky"
+                    to={`/paper?account_id=${encodeURIComponent(acc.id)}`}
                   />
                 ))}
               </div>
@@ -179,6 +181,7 @@ const Dashboard: React.FC = () => {
                     gainDollars={acc.gainDollars}
                     gainPercent={acc.gainPercent}
                     accent="rose"
+                    to={`/live?account_id=${encodeURIComponent(acc.id)}`}
                   />
                 ))}
               </div>
@@ -200,15 +203,16 @@ interface AccountTileProps {
   gainDollars: number;
   gainPercent: number;
   accent: 'sky' | 'rose';
+  to?: string;
 }
 
-const AccountTile: React.FC<AccountTileProps> = ({ name, equity, gainDollars, gainPercent, accent }) => {
+const AccountTile: React.FC<AccountTileProps> = ({ name, equity, gainDollars, gainPercent, accent, to }) => {
   const formatNumber = (n: number, decimals = 0) =>
     n.toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
   const isPositive = gainDollars >= 0;
 
-  return (
-    <div className="bg-[#181818] border border-zinc-800/80 p-5 rounded-xl shadow-sm hover:border-zinc-700 transition-colors">
+  const tileContent = (
+    <>
       <div className="flex justify-between items-start mb-3">
         <div className={`p-2 rounded-lg ${accent === 'rose' ? 'bg-rose-500/10 text-rose-400' : 'bg-[#86c7f3]/10 text-[#86c7f3]'}`}>
           <Wallet size={18} />
@@ -223,6 +227,22 @@ const AccountTile: React.FC<AccountTileProps> = ({ name, equity, gainDollars, ga
       <div className="text-[10px] font-bold text-zinc-500 mt-2 uppercase tracking-wide">
         {isPositive ? '+' : ''}${formatNumber(gainDollars, 2)} ({isPositive ? '+' : ''}{gainPercent.toFixed(2)}%)
       </div>
+    </>
+  );
+
+  const className = "bg-[#181818] border border-zinc-800/80 p-5 rounded-xl shadow-sm hover:border-zinc-700 transition-colors block";
+
+  if (to) {
+    return (
+      <Link to={to} className={className}>
+        {tileContent}
+      </Link>
+    );
+  }
+
+  return (
+    <div className={className}>
+      {tileContent}
     </div>
   );
 };

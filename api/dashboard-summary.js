@@ -89,6 +89,17 @@ async function fetchAccountSummary(accountId, accountName, accountType, rangeVal
         };
       });
     }
+    // Filter out leading zero/negative values so we start from first meaningful balance (opening deposit)
+    if (history.length > 0) {
+      const sortedHist = [...history].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+      const firstMeaningfulIdx = sortedHist.findIndex((p) => p.value > 0);
+      if (firstMeaningfulIdx > 0) {
+        history = sortedHist.slice(firstMeaningfulIdx);
+      } else if (firstMeaningfulIdx === -1 && equity > 0) {
+        // All zeros but we have current equity - use that
+        history = [{ time: new Date().toISOString(), value: equity }];
+      }
+    }
     if (history.length === 0 && equity > 0) {
       history = [{ time: new Date().toISOString(), value: equity }];
     }
@@ -129,7 +140,9 @@ async function fetchAccountSummary(accountId, accountName, accountType, rangeVal
 
 /**
  * Merge multiple account histories into one time series (sum of equity at each timestamp).
- * Union of timestamps; for each account without a point at a timestamp, use last-known value (carry-forward).
+ * Union of timestamps; for each account without a point at a timestamp, use first meaningful value
+ * (opening balance) to backfill, so the combined line stays flat at the combined opening balance
+ * until real data starts.
  */
 function mergeHistories(accountSummaries) {
   const timeSet = new Set();
@@ -141,12 +154,20 @@ function mergeHistories(accountSummaries) {
   const sortedTimes = Array.from(timeSet).sort((a, b) => a - b);
   if (sortedTimes.length === 0) return [];
 
+  // Pre-sort each account's history and find its first meaningful value (opening balance)
+  const preparedAccounts = accountSummaries.map((acc) => {
+    const sorted = [...acc.history].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+    const firstMeaningful = sorted.find((p) => p.value > 0) ?? sorted[0];
+    const firstValue = firstMeaningful?.value ?? 0;
+    return { sorted, firstValue };
+  });
+
   const result = [];
   for (const ms of sortedTimes) {
     let total = 0;
-    for (const acc of accountSummaries) {
-      const sorted = [...acc.history].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
-      let value = 0;
+    for (const { sorted, firstValue } of preparedAccounts) {
+      // Find last known value at or before this timestamp
+      let value = firstValue; // Default to opening balance (backfill) instead of 0
       for (const p of sorted) {
         if (new Date(p.time).getTime() <= ms) value = p.value;
       }
