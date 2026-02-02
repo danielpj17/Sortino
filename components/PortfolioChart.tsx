@@ -88,7 +88,7 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({
     const now = new Date();
     let rangeStart = new Date();
     if (range === '1D') {
-      rangeStart = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      rangeStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
     } else if (range === '1W') {
       rangeStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     } else if (range === '1M') {
@@ -116,9 +116,12 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({
     if (firstMeaningfulTime > rangeStartMs) {
       extended.push({ time: rangeStart.toISOString(), value: firstMeaningfulValue });
     }
-    // Drop leading zero/negative points so the line is flat at opening balance until first real data
+    // Drop leading zero/negative points; for 1D also exclude points before rangeStart (today only)
     extended.push(
-      ...sorted.filter((p) => new Date(p.time).getTime() >= firstMeaningfulTime)
+      ...sorted.filter((p) => {
+        const t = new Date(p.time).getTime();
+        return t >= firstMeaningfulTime && t >= rangeStartMs;
+      })
     );
     // Only append "now" if last point is at least 1 minute before rangeEnd to avoid duplicate end point
     if (lastTime < rangeEndMs - 60 * 1000) {

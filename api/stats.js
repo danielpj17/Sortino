@@ -77,7 +77,7 @@ export default async function handler(req, res) {
       let startTime = new Date();
       
       if (range === '1D') {
-        startTime = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+        startTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
       } else if (range === '1W') {
         startTime = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
       } else if (range === '1M') {
