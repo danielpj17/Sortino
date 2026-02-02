@@ -1,4 +1,5 @@
 import { getPool } from '../lib/db.js';
+import { getDecryptedAccount } from '../lib/account-credentials.js';
 import { safeLogError } from '../lib/safeLog.js';
 
 // Simple in-memory cache (30 seconds TTL)
@@ -52,34 +53,40 @@ export default async function handler(req, res) {
       return res.status(200).json(cached);
     }
 
-    // Get account credentials for Alpaca API
-    const pool = getPool();
-    let accountQuery = 'SELECT api_key, secret_key, type FROM accounts';
-    const queryParams = [];
-    
+    // Get decrypted account credentials for Alpaca API
+    let account;
     if (account_id) {
-      accountQuery += ' WHERE id = $1';
-      queryParams.push(account_id);
-    }
-    
-    accountQuery += ' LIMIT 1';
-    const accountResult = await pool.query(accountQuery, queryParams);
-    
-    if (accountResult.rows.length === 0) {
-      // If no account, return cached prices or empty
-      return res.status(200).json(cached);
+      try {
+        account = await getDecryptedAccount(account_id);
+      } catch (err) {
+        safeLogError('[market-prices] getDecryptedAccount:', err);
+        return res.status(200).json(cached);
+      }
+    } else {
+      // Legacy: no account_id - use first Paper account
+      const pool = getPool();
+      const idResult = await pool.query(
+        "SELECT id FROM accounts WHERE type = 'Paper' LIMIT 1"
+      );
+      if (idResult.rows.length === 0) {
+        return res.status(200).json(cached);
+      }
+      try {
+        account = await getDecryptedAccount(idResult.rows[0].id);
+      } catch (err) {
+        safeLogError('[market-prices] getDecryptedAccount:', err);
+        return res.status(200).json(cached);
+      }
     }
 
-    const account = accountResult.rows[0];
-    const baseUrl = account.type === 'Paper' 
-      ? 'https://paper-api.alpaca.markets' 
+    const baseUrl = String(account.type).toLowerCase() === 'paper'
+      ? 'https://paper-api.alpaca.markets'
       : 'https://api.alpaca.markets';
 
     // Fetch prices from Alpaca
     const prices = {};
     
     try {
-      // Use Alpaca REST API to get latest trades
       const headers = {
         'APCA-API-KEY-ID': account.api_key,
         'APCA-API-SECRET-KEY': account.secret_key

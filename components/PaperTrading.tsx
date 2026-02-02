@@ -33,6 +33,7 @@ const PaperTrading: React.FC = () => {
   const [stats, setStats] = useState({ totalPnL: 0, winRate: 0, totalTrades: 0 });
   const [accounts, setAccounts] = useState<any[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
+  const [portfolioData, setPortfolioData] = useState<{ portfolio_value: number; buying_power: number; cash: number } | null>(null);
   const [isAccountDropdownOpen, setIsAccountDropdownOpen] = useState(false);
   const [viewMode, setViewMode] = useState<'POSITIONS' | 'COMPLETED'>('POSITIONS');
   const [marketPrices, setMarketPrices] = useState<Record<string, number>>({});
@@ -48,17 +49,13 @@ const PaperTrading: React.FC = () => {
           const data = await res.json();
           const dbAccounts = Array.isArray(data) ? data.filter((a: any) => a.type === 'Paper') : [];
           setAccounts(dbAccounts);
-          // Auto-select "ML Model" account on first load (open/refresh)
+          // Auto-select: prefer "Sortino Model", else first account. Always select when accounts exist.
           if (!hasAutoSelectedAccount.current && dbAccounts.length > 0) {
             hasAutoSelectedAccount.current = true;
-            const mlModelAccount = dbAccounts.find((a: any) => 
-              a.name && String(a.name).toLowerCase().includes('ml model')
+            const sortinoAccount = dbAccounts.find((a: any) =>
+              a.name && String(a.name).toLowerCase().includes('sortino')
             );
-            if (mlModelAccount) {
-              setSelectedAccountId(mlModelAccount.id);
-            } else if (dbAccounts.length === 1) {
-              setSelectedAccountId(dbAccounts[0].id);
-            }
+            setSelectedAccountId(sortinoAccount ? sortinoAccount.id : dbAccounts[0].id);
           }
         }
       } catch (error) {
@@ -92,33 +89,57 @@ const PaperTrading: React.FC = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Fetch trades and stats
+  // Fetch live portfolio from Alpaca when account is selected
   useEffect(() => {
+    if (!selectedAccountId) {
+      setPortfolioData(null);
+      return;
+    }
+    const fetchPortfolio = async () => {
+      try {
+        const res = await fetch(`/api/account-portfolio?account_id=${selectedAccountId}`);
+        if (res.ok) {
+          const data = await res.json();
+          setPortfolioData({
+            portfolio_value: data.portfolio_value ?? 0,
+            buying_power: data.buying_power ?? 0,
+            cash: data.cash ?? 0,
+          });
+        } else {
+          setPortfolioData(null);
+        }
+      } catch (error) {
+        console.error("Failed to fetch portfolio", error);
+        setPortfolioData(null);
+      }
+    };
+    fetchPortfolio();
+    const interval = setInterval(fetchPortfolio, 15000);
+    return () => clearInterval(interval);
+  }, [selectedAccountId]);
+
+  // Fetch trades and stats (always requires account_id for per-account isolation)
+  useEffect(() => {
+    if (!selectedAccountId) {
+      setTrades([]);
+      setStats({ totalPnL: 0, winRate: 0, totalTrades: 0 });
+      return;
+    }
     const fetchData = async () => {
       try {
-        const tradesUrl = selectedAccountId 
-          ? `/api/trades?type=Paper&account_id=${selectedAccountId}`
-          : '/api/trades?type=Paper';
-        const statsUrl = selectedAccountId
-          ? `/api/stats?type=Paper&account_id=${selectedAccountId}`
-          : '/api/stats?type=Paper';
-        
-        const tradesRes = await fetch(tradesUrl);
-        const statsRes = await fetch(statsUrl);
-        
+        const tradesRes = await fetch(`/api/trades?type=Paper&account_id=${selectedAccountId}`);
+        const statsRes = await fetch(`/api/stats?type=Paper&account_id=${selectedAccountId}`);
+
         if (tradesRes.ok) {
           const tradesData = await tradesRes.json();
           setTrades(Array.isArray(tradesData) ? tradesData : []);
         } else {
-          console.error("Failed to fetch paper trades:", tradesRes.status);
           setTrades([]);
         }
-        
+
         if (statsRes.ok) {
           const statsData = await statsRes.json();
           setStats(statsData);
-        } else {
-          console.error("Failed to fetch paper stats:", statsRes.status);
         }
       } catch (error) {
         console.error("Failed to fetch paper data", error);
@@ -230,7 +251,7 @@ const PaperTrading: React.FC = () => {
 
   const selectedAccount = selectedAccountId ? accounts.find(a => a.id === selectedAccountId) : null;
 
-  // Calculate portfolio equity
+  // Calculate portfolio equity: use live Alpaca data when available, else fallback to trade-derived
   const startingCapital = 100000;
   const totalPnL = stats.totalPnL;
   const unrealizedPnL = openPositions.reduce((sum, p) => {
@@ -239,9 +260,9 @@ const PaperTrading: React.FC = () => {
     }
     return sum;
   }, 0);
-  const portfolioEquity = startingCapital + totalPnL + unrealizedPnL;
   const positionValue = openPositions.reduce((sum, p) => sum + (p.positionValue || 0), 0);
-  const availableCash = Math.max(0, startingCapital - positionValue + totalPnL);
+  const portfolioEquity = portfolioData?.portfolio_value ?? (startingCapital + totalPnL + unrealizedPnL);
+  const availableCash = portfolioData?.buying_power ?? Math.max(0, startingCapital - positionValue + totalPnL);
 
   // Calculate percent change (from starting capital)
   const percentChange = startingCapital > 0 ? ((portfolioEquity - startingCapital) / startingCapital) * 100 : 0;
@@ -266,7 +287,7 @@ const PaperTrading: React.FC = () => {
             </div>
             <div className="flex-1 overflow-hidden">
               <p className="text-zinc-200 text-xs font-bold truncate leading-tight">
-                {selectedAccount ? selectedAccount.name : 'All Accounts'}
+                {selectedAccount ? selectedAccount.name : 'Select an Account'}
               </p>
               <p className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Paper Trading</p>
             </div>
@@ -275,12 +296,6 @@ const PaperTrading: React.FC = () => {
 
           {isAccountDropdownOpen && (
             <div className="absolute top-full right-0 mt-2 w-full bg-[#181818] border border-zinc-800 rounded-xl shadow-2xl z-50 py-2 animate-in slide-in-from-top-2 duration-200 overflow-hidden">
-              <button
-                onClick={() => { setSelectedAccountId(null); setIsAccountDropdownOpen(false); }}
-                className={`w-full px-4 py-3 flex items-center gap-3 transition-colors text-left hover:bg-zinc-800/50 ${!selectedAccountId ? 'bg-zinc-800/30' : ''}`}
-              >
-                <span className="text-xs font-bold text-zinc-300">All Accounts</span>
-              </button>
               {accounts.map((account) => (
                 <button
                   key={account.id}
@@ -295,7 +310,9 @@ const PaperTrading: React.FC = () => {
         </div>
       </div>
 
-      {/* Dynamic Metrics */}
+      {/* Dynamic Metrics - only when account selected */}
+      {selectedAccountId ? (
+        <>
       <MetricsGrid 
         totalPnL={totalPnL + unrealizedPnL} 
         portfolioEquity={portfolioEquity}
@@ -309,21 +326,6 @@ const PaperTrading: React.FC = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-1">
-          {!selectedAccountId && accounts.length > 0 ? (
-            <div className="bg-[#181818] border border-zinc-800 rounded-2xl p-6 shadow-sm">
-              <div className="text-center space-y-3">
-                <p className="text-sm font-bold text-zinc-300">Select an Account</p>
-                <p className="text-xs text-zinc-500">Please select an account from the dropdown above to view bot status and start trading.</p>
-              </div>
-            </div>
-          ) : !selectedAccountId && accounts.length === 0 ? (
-            <div className="bg-[#181818] border border-zinc-800 rounded-2xl p-6 shadow-sm">
-              <div className="text-center space-y-3">
-                <p className="text-sm font-bold text-zinc-300">No Accounts Found</p>
-                <p className="text-xs text-zinc-500">Add a Paper Trading account in Settings to get started.</p>
-              </div>
-            </div>
-          ) : (
             <BotTile
               accountId={selectedAccountId}
               onStartBot={async () => {
@@ -381,7 +383,6 @@ const PaperTrading: React.FC = () => {
                 }
               }}
             />
-          )}
         </div>
         <div className="lg:col-span-2 bg-[#181818] rounded-2xl p-6 border border-zinc-800">
           <PortfolioChart type="Paper" accountId={selectedAccountId} currentEquity={portfolioEquity} />
@@ -508,6 +509,22 @@ const PaperTrading: React.FC = () => {
           </table>
         </div>
       </div>
+        </>
+      ) : accounts.length > 0 ? (
+        <div className="bg-[#181818] border border-zinc-800 rounded-2xl p-12 shadow-sm">
+          <div className="text-center space-y-3">
+            <p className="text-sm font-bold text-zinc-300">Select an Account</p>
+            <p className="text-xs text-zinc-500">Please select an account from the dropdown above to view metrics, bot status, and trades.</p>
+          </div>
+        </div>
+      ) : (
+        <div className="bg-[#181818] border border-zinc-800 rounded-2xl p-12 shadow-sm">
+          <div className="text-center space-y-3">
+            <p className="text-sm font-bold text-zinc-300">No Accounts Found</p>
+            <p className="text-xs text-zinc-500">Add a Paper Trading account in Settings to get started.</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
