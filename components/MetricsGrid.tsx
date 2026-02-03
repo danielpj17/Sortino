@@ -15,6 +15,8 @@ interface MetricsProps {
   /** When provided, Portfolio Equity card shows today's $ and % gain instead of overall. */
   todayGainDollars?: number;
   todayGainPercent?: number;
+  /** When true, renders 4 MetricCards without a wrapper (for use in parent grid). */
+  asFragment?: boolean;
 }
 
 const MetricsGrid: React.FC<MetricsProps> = ({ 
@@ -29,6 +31,7 @@ const MetricsGrid: React.FC<MetricsProps> = ({
   percentChange,
   todayGainDollars,
   todayGainPercent,
+  asFragment = false,
 }) => {
   const useTodayGain = todayGainDollars !== undefined && todayGainPercent !== undefined;
   const equitySubValue = useTodayGain ? (
@@ -42,8 +45,8 @@ const MetricsGrid: React.FC<MetricsProps> = ({
   );
   const equityTrend = useTodayGain ? todayGainPercent : percentChange;
 
-  return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+  const cards = (
+    <>
       <MetricCard 
         title="Portfolio Equity" 
         value={`$${portfolioEquity.toLocaleString()}`} 
@@ -72,6 +75,13 @@ const MetricsGrid: React.FC<MetricsProps> = ({
         icon={<Target size={18} />} 
         color="sky"
       />
+    </>
+  );
+
+  if (asFragment) return cards;
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      {cards}
     </div>
   );
 };
@@ -93,7 +103,7 @@ const MetricCard: React.FC<MetricCardProps> = ({ title, value, subValue, icon, c
   };
 
   return (
-    <div className="bg-[#181818] border border-zinc-800/80 p-5 rounded-xl shadow-sm relative overflow-hidden group hover:border-zinc-700 transition-colors">
+    <div className="bg-[#181818] border border-zinc-800 p-5 rounded-2xl shadow-sm relative overflow-hidden group hover:border-zinc-700 transition-colors">
       <div className="flex justify-between items-start mb-3">
         <div className={`p-2 rounded-lg ${colorMap[color]}`}>
           {icon}

@@ -432,21 +432,21 @@ const LiveTrading: React.FC = () => {
 
       {selectedAccountId ? (
         <>
-      <MetricsGrid 
-        totalPnL={totalPnL + unrealizedPnL} 
-        portfolioEquity={portfolioEquity}
-        positionValue={positionValue}
-        availableCash={availableCash} 
-        winRate={winRate} 
-        totalTrades={totalTrades} 
-        profitableTrades={profitableTrades} 
-        lossTrades={lossTrades}
-        percentChange={percentChange}
-        todayGainDollars={portfolioData?.todayGainDollars}
-        todayGainPercent={portfolioData?.todayGainPercent}
-      />
-
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_3fr] gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+        <MetricsGrid 
+          asFragment
+          totalPnL={totalPnL + unrealizedPnL} 
+          portfolioEquity={portfolioEquity}
+          positionValue={positionValue}
+          availableCash={availableCash} 
+          winRate={winRate} 
+          totalTrades={totalTrades} 
+          profitableTrades={profitableTrades} 
+          lossTrades={lossTrades}
+          percentChange={percentChange}
+          todayGainDollars={portfolioData?.todayGainDollars}
+          todayGainPercent={portfolioData?.todayGainPercent}
+        />
         <div className="h-full min-w-0">
           <BotTile
             accent="purple"
@@ -507,7 +507,7 @@ const LiveTrading: React.FC = () => {
             }}
           />
         </div>
-        <div className="h-full min-h-0 min-w-0 bg-[#181818] rounded-2xl p-6 border border-zinc-800">
+        <div className="h-full min-h-0 min-w-0 lg:col-span-3 bg-[#181818] rounded-2xl p-6 border border-zinc-800">
           <PortfolioChart type="Live" accountId={selectedAccountId} currentEquity={portfolioEquity} />
         </div>
       </div>
