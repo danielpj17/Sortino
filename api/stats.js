@@ -145,20 +145,33 @@ export default async function handler(req, res) {
           cumulativePnL += parseFloat(row.pnl || 0);
           tradePoints.push({
             time: new Date(row.timestamp).toISOString(),
-            cumulativePnL: cumulativePnL
+            cumulativePnL,
           });
         }
+      } else if (range === '1W') {
+        // For 1W: group trades into 15-minute buckets to increase resolution
+        const bucketMap = new Map();
+        for (const row of equityResult.rows) {
+          cumulativePnL += parseFloat(row.pnl || 0);
+          const ts = new Date(row.timestamp).getTime();
+          const bucketMs = Math.floor(ts / (15 * 60 * 1000)) * 15 * 60 * 1000;
+          bucketMap.set(bucketMs, {
+            time: new Date(bucketMs).toISOString(),
+            cumulativePnL,
+          });
+        }
+        tradePoints.push(...Array.from(bucketMap.values()));
+        tradePoints.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
       } else {
-        // For other ranges: Group by time bucket
+        // For other ranges: Group by time bucket (hour/day/week depending on range)
         const bucketMap = new Map();
         for (const row of equityResult.rows) {
           cumulativePnL += parseFloat(row.pnl || 0);
           const bucketKey = new Date(row.time_bucket).toISOString();
           
-          // Keep the latest cumulative PnL for each bucket
           bucketMap.set(bucketKey, {
             time: bucketKey,
-            cumulativePnL: cumulativePnL
+            cumulativePnL,
           });
         }
         
