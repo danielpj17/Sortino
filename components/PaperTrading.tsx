@@ -42,6 +42,8 @@ const PaperTrading: React.FC = () => {
     positions?: Array<{ symbol: string; qty: number; side: string; market_value: number; unrealized_pl: number; avg_entry_price: number; current_price: number }>;
     completedTrades?: Array<{ symbol: string; qty: number; buyPrice: number; sellPrice: number; buyTime: string; sellTime: string; pnl: number }>;
     activities?: Array<{ symbol?: string; symbol_id?: string; side?: string; transaction_time?: string; trade_time?: string; created_at?: string }>;
+    todayGainDollars?: number;
+    todayGainPercent?: number;
   } | null>(null);
   const [isAccountDropdownOpen, setIsAccountDropdownOpen] = useState(false);
   const [viewMode, setViewMode] = useState<'POSITIONS' | 'COMPLETED'>('POSITIONS');
@@ -112,7 +114,7 @@ const PaperTrading: React.FC = () => {
     setPortfolioData(null);
     const fetchPortfolio = async () => {
       try {
-        const res = await fetch(`/api/account-portfolio?account_id=${selectedAccountId}&include_activities=true`);
+        const res = await fetch(`/api/account-portfolio?account_id=${selectedAccountId}&include_activities=true&include_portfolio_history=true&range=1D`);
         if (res.ok) {
           const data = await res.json();
           setPortfolioData({
@@ -122,6 +124,8 @@ const PaperTrading: React.FC = () => {
             positions: data.positions ?? [],
             completedTrades: data.completedTrades ?? [],
             activities: data.activities ?? [],
+            todayGainDollars: data.todayGainDollars ?? 0,
+            todayGainPercent: data.todayGainPercent ?? 0,
           });
         } else {
           setPortfolioData(null);
@@ -445,6 +449,8 @@ const PaperTrading: React.FC = () => {
         profitableTrades={profitableTrades}
         lossTrades={lossTrades}
         percentChange={percentChange}
+        todayGainDollars={portfolioData?.todayGainDollars}
+        todayGainPercent={portfolioData?.todayGainPercent}
       />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

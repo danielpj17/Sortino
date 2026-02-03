@@ -12,6 +12,9 @@ interface MetricsProps {
   profitableTrades: number;
   lossTrades: number;
   percentChange?: number;
+  /** When provided, Portfolio Equity card shows today's $ and % gain instead of overall. */
+  todayGainDollars?: number;
+  todayGainPercent?: number;
 }
 
 const MetricsGrid: React.FC<MetricsProps> = ({ 
@@ -23,21 +26,31 @@ const MetricsGrid: React.FC<MetricsProps> = ({
   totalTrades,
   profitableTrades,
   lossTrades,
-  percentChange
+  percentChange,
+  todayGainDollars,
+  todayGainPercent,
 }) => {
+  const useTodayGain = todayGainDollars !== undefined && todayGainPercent !== undefined;
+  const equitySubValue = useTodayGain ? (
+    <span className={todayGainDollars >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
+      {todayGainDollars >= 0 ? '+' : ''}${todayGainDollars.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ({todayGainDollars >= 0 ? '+' : ''}{todayGainPercent.toFixed(2)}%) today
+    </span>
+  ) : (
+    <span className={totalPnL >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
+      {totalPnL >= 0 ? '+' : '-'}${Math.abs(totalPnL).toLocaleString()}
+    </span>
+  );
+  const equityTrend = useTodayGain ? todayGainPercent : percentChange;
+
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
       <MetricCard 
         title="Portfolio Equity" 
         value={`$${portfolioEquity.toLocaleString()}`} 
-        subValue={
-          <span className={totalPnL >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
-            {totalPnL >= 0 ? '+' : '-'}${Math.abs(totalPnL).toLocaleString()}
-          </span>
-        }
+        subValue={equitySubValue}
         icon={<Wallet size={18} />} 
         color="sky"
-        trend={percentChange !== undefined ? percentChange : undefined}
+        trend={equityTrend !== undefined ? equityTrend : undefined}
       />
       <MetricCard 
         title="Position / Cash" 

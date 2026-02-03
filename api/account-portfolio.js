@@ -2,11 +2,35 @@
  * Account Portfolio API - Fetch live portfolio data from Alpaca for a given account.
  * GET /api/account-portfolio?account_id=<id>
  * Query params: include_positions (default true), include_activities, include_portfolio_history, range (1D|1W|1M|1Y|YTD)
- * Returns: portfolio_value, buying_power, cash, positions, activities, completedTrades, portfolioHistory
+ * Returns: portfolio_value, buying_power, cash, positions, activities, completedTrades, portfolioHistory, todayGainDollars, todayGainPercent
  */
 
 import { getDecryptedAccount } from '../lib/account-credentials.js';
 import { safeLogError } from '../lib/safeLog.js';
+
+const TZ = 'America/New_York';
+
+function toEasternDateKey(d) {
+  return new Date(d).toLocaleDateString('en-CA', { timeZone: TZ });
+}
+
+function computeTodayGain(sorted, currentEquity) {
+  if (!sorted || sorted.length === 0) {
+    return { gainDollars: 0, gainPercent: 0 };
+  }
+  const todayKey = toEasternDateKey(new Date());
+  const todayPoints = sorted.filter((p) => toEasternDateKey(p.time) === todayKey);
+  let openVal;
+  if (todayPoints.length > 0) {
+    openVal = todayPoints[0].value;
+  } else {
+    const beforeToday = sorted.filter((p) => toEasternDateKey(p.time) < todayKey);
+    openVal = beforeToday.length > 0 ? beforeToday[beforeToday.length - 1].value : sorted[0].value;
+  }
+  const gainDollars = currentEquity - openVal;
+  const gainPercent = openVal > 0 ? (gainDollars / openVal) * 100 : 0;
+  return { gainDollars, gainPercent };
+}
 
 function mapRangeToAlpaca(range) {
   const map = {
@@ -224,11 +248,16 @@ export default async function handler(req, res) {
       });
     }
 
+    const sortedHistory = [...portfolioHistory].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+    const { gainDollars: todayGainDollars, gainPercent: todayGainPercent } = computeTodayGain(sortedHistory, portfolio_value);
+
     const response = {
       portfolio_value,
       buying_power,
       cash,
       positions,
+      todayGainDollars,
+      todayGainPercent,
     };
     if (wantActivities) {
       response.activities = allFills;
