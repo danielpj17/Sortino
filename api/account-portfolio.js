@@ -36,7 +36,8 @@ function mapRangeToAlpaca(range) {
   const map = {
     '1D': { period: '1D', timeframe: '5Min' },
     '1W': { period: '1W', timeframe: '15Min' },
-    '1M': { period: '1M', timeframe: '1H' },
+    // Request 1A/1D for 1M (Alpaca often returns empty for 1M/1H on paper); we trim to last 30 days below
+    '1M': { period: '1A', timeframe: '1D' },
     '1Y': { period: '1A', timeframe: '1D' },
     'YTD': { period: '1A', timeframe: '1D' },
   };
@@ -256,6 +257,14 @@ export default async function handler(req, res) {
       } else if (firstMeaningfulIdx === -1 && portfolio_value > 0) {
         portfolioHistory = [{ time: new Date().toISOString(), value: portfolio_value }];
       }
+    }
+
+    // For 1M we requested 1A/1D; keep only the last 30 days
+    if (rangeVal === '1M' && portfolioHistory.length > 0) {
+      const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+      portfolioHistory = portfolioHistory
+        .filter((p) => new Date(p.time).getTime() >= cutoff)
+        .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
     }
 
     const sortedHistory = [...portfolioHistory].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
