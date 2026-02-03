@@ -34,9 +34,9 @@ function computeTodayGain(sorted, currentEquity) {
 
 function mapRangeToAlpaca(range) {
   const map = {
-    '1D': { period: '1D', timeframe: '15Min' },
-    '1W': { period: '1W', timeframe: '1H' },
-    '1M': { period: '1M', timeframe: '1D' },
+    '1D': { period: '1D', timeframe: '5Min' },
+    '1W': { period: '1W', timeframe: '30Min' },
+    '1M': { period: '1M', timeframe: '1H' },
     '1Y': { period: '1A', timeframe: '1D' },
     'YTD': { period: '1A', timeframe: '1D' },
   };

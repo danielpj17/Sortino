@@ -92,12 +92,13 @@ export default async function handler(req, res) {
       // For other ranges, use time buckets
       let timeInterval = null;
       if (range === '1D') {
-        // Don't bucket for 1D - we want individual trade points
         timeInterval = null;
-      } else if (range === '1W' || range === '1M') {
+      } else if (range === '1W') {
+        timeInterval = 'hour';
+      } else if (range === '1M') {
         timeInterval = 'day';
       } else if (range === '1Y' || range === 'YTD') {
-        timeInterval = 'month';
+        timeInterval = 'week';
       }
       
       // Build query to get all trades ordered by time
@@ -183,43 +184,41 @@ export default async function handler(req, res) {
         });
       }
       
-      // For 1D view, add intermediate hourly points to show progression
+      // For 1D view, add intermediate 5-minute points to show progression
       if (range === '1D' && formattedData.length > 1) {
         const hourlyPoints = [];
         const start = new Date(startTime);
         const end = new Date(now);
         
-        // Generate hourly points
-        let currentHour = new Date(start);
-        currentHour.setMinutes(0, 0, 0); // Round to start of hour
-        
-        while (currentHour <= end) {
-          // Find the last trade point before this hour
-          let equityAtHour = startingCapital;
+        const intervalMs = 5 * 60 * 1000;
+        let cursor = new Date(start);
+        cursor.setSeconds(0, 0);
+        cursor.setMinutes(Math.floor(cursor.getMinutes() / 5) * 5);
+
+        while (cursor <= end) {
+          let equityAtCursor = startingCapital;
           for (let i = formattedData.length - 1; i >= 0; i--) {
             const pointTime = new Date(formattedData[i].time);
-            if (pointTime <= currentHour) {
-              equityAtHour = formattedData[i].value;
+            if (pointTime <= cursor) {
+              equityAtCursor = formattedData[i].value;
               break;
             }
           }
-          
+
           hourlyPoints.push({
-            time: currentHour.toISOString(),
-            value: equityAtHour
+            time: cursor.toISOString(),
+            value: equityAtCursor
           });
-          
-          // Move to next hour
-          currentHour = new Date(currentHour.getTime() + 60 * 60 * 1000);
+
+          cursor = new Date(cursor.getTime() + intervalMs);
         }
-        
-        // Merge hourly points with trade points, removing duplicates
+
         const allPoints = [...formattedData];
         for (const hourlyPoint of hourlyPoints) {
           const exists = allPoints.some(p => {
             const pTime = new Date(p.time);
             const hTime = new Date(hourlyPoint.time);
-            return Math.abs(pTime.getTime() - hTime.getTime()) < 5 * 60 * 1000; // Within 5 minutes
+            return Math.abs(pTime.getTime() - hTime.getTime()) < 2 * 60 * 1000;
           });
           
           if (!exists) {
