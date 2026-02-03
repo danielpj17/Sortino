@@ -362,6 +362,16 @@ const PaperTrading: React.FC = () => {
   const openPositions = useAlpacaData ? alpacaOpenPositions : dbOpenPositions;
   const completedTrades = useAlpacaData ? alpacaCompletedTrades : dbCompletedTrades;
   const displayedPositions = viewMode === 'POSITIONS' ? openPositions : completedTrades;
+  const sortedDisplayedPositions = [...displayedPositions].sort((a, b) => {
+    if (viewMode === 'POSITIONS') {
+      const ta = new Date(a.buyTrade.timestamp).getTime();
+      const tb = new Date(b.buyTrade.timestamp).getTime();
+      return tb - ta;
+    }
+    const ta = new Date(('sellTrade' in a && a.sellTrade ? a.sellTrade.timestamp : a.buyTrade.timestamp)).getTime();
+    const tb = new Date(('sellTrade' in b && b.sellTrade ? b.sellTrade.timestamp : b.buyTrade.timestamp)).getTime();
+    return tb - ta;
+  });
 
   const selectedAccount = selectedAccountId ? accounts.find((a) => a.id === selectedAccountId) : null;
 
@@ -564,14 +574,14 @@ const PaperTrading: React.FC = () => {
               </tr>
             </thead>
             <tbody key={viewMode} className="divide-y divide-zinc-800/50">
-              {displayedPositions.length === 0 ? (
+              {sortedDisplayedPositions.length === 0 ? (
                 <tr>
                   <td colSpan={viewMode === 'COMPLETED' ? 9 : 8} className="px-6 py-8 text-center text-zinc-600">
                     {viewMode === 'POSITIONS' ? 'No current positions.' : 'No completed trades.'}
                   </td>
                 </tr>
               ) : (
-                displayedPositions.map((pos) => {
+                sortedDisplayedPositions.map((pos) => {
                   const buy = pos.buyTrade;
                   const sell = pos.sellTrade;
                   const marketPrice = pos.marketPrice || marketPrices[buy.ticker];
