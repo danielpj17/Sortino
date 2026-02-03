@@ -139,47 +139,7 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({
       extended.push({ time: rangeEnd.toISOString(), value: endValue });
     }
 
-    // For 1W: resample to 15-min intervals during market hours (7am-2:30pm MDT/MST) for last 5 market days + today
-    let toFormat = extended;
-    if (range === '1W') {
-      const marketDays: Date[] = [];
-      let d = new Date();
-      let count = 0;
-      while (count < 6) {
-        const day = d.getDay();
-        if (day >= 1 && day <= 5) {
-          marketDays.unshift(new Date(d.getFullYear(), d.getMonth(), d.getDate()));
-          count++;
-        }
-        d = new Date(d.getTime() - 24 * 60 * 60 * 1000);
-      }
-      const slots: { time: string; value: number }[] = [];
-      const extSorted = [...extended].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
-      for (const marketDay of marketDays) {
-        // 7:00 AM to 2:30 PM MDT/MST in 15-min increments (7:00, 7:15, ..., 14:30)
-        const minuteSlots = [0, 15, 30, 45];
-        for (let h = 7; h <= 14; h++) {
-          const mins = h === 14 ? [0, 15, 30] : minuteSlots;
-          for (const m of mins) {
-            // 7am-2:30pm market hours (uses local time; correct when user is in MDT/MST)
-            const slotDate = new Date(marketDay.getFullYear(), marketDay.getMonth(), marketDay.getDate(), h, m, 0, 0);
-            const slotMs = slotDate.getTime();
-            let value = firstMeaningfulValue;
-            for (let i = extSorted.length - 1; i >= 0; i--) {
-              const pt = new Date(extSorted[i].time).getTime();
-              if (pt <= slotMs) {
-                value = extSorted[i].value;
-                break;
-              }
-            }
-            slots.push({ time: slotDate.toISOString(), value });
-          }
-        }
-      }
-      toFormat = slots;
-    }
-
-    return toFormat
+    return extended
       .map((point: { time: string; value: number }) => {
         const date = new Date(point.time);
         let timeLabel = '';
