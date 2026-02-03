@@ -170,17 +170,24 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({
         .map(([, p]) => p);
     }
 
-    // Forward-fill zero/negative equity (e.g. weekend bars from Alpaca) so the curve doesn't drop to $0
+    // Forward-fill zero/negative/outlier equity (weekend bars or bad API snapshots) so the curve doesn't show fake dips
     if (range === '1W' || range === '1M' || range === '1Y' || range === 'YTD') {
+      const floor = Math.min(5000, firstMeaningfulValue * 0.01);
+      const maxDropRatio = 0.5; // treat as bad if value is less than 50% of previous good
       let lastGood = toFormat[0]?.value;
-      if (typeof lastGood !== 'number' || !Number.isFinite(lastGood) || lastGood <= 0) {
+      if (typeof lastGood !== 'number' || !Number.isFinite(lastGood) || lastGood <= 0 || lastGood < floor) {
         lastGood = firstMeaningfulValue;
       }
       toFormat = toFormat.map((p) => {
         const v = p.value;
-        if (typeof v === 'number' && Number.isFinite(v) && v > 0) lastGood = v;
-        else return { ...p, value: lastGood };
-        return p;
+        const isFinitePositive = typeof v === 'number' && Number.isFinite(v) && v > 0;
+        const aboveFloor = isFinitePositive && v >= floor;
+        const notOutlierDrop = !lastGood || v >= lastGood * maxDropRatio;
+        if (isFinitePositive && aboveFloor && notOutlierDrop) {
+          lastGood = v;
+          return p;
+        }
+        return { ...p, value: lastGood };
       });
     }
 
