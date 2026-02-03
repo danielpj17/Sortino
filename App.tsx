@@ -26,8 +26,8 @@ const App: React.FC = () => {
         <aside className={`${isSidebarOpen ? 'w-64' : 'w-20'} transition-all duration-300 bg-[#121212] border-r border-zinc-800/50 flex flex-col`}>
           <div className="p-6 flex items-center justify-between">
             <div className={`flex items-center gap-3 ${!isSidebarOpen && 'hidden'}`}>
-              <div className="bg-[#86c7f3] p-2 rounded-lg shadow-lg shadow-[#86c7f3]/20">
-                <img src="/logo.svg" alt="Sortino" className="w-6 h-6 object-contain" />
+              <div className="bg-[#86c7f3] p-1.5 rounded-lg shadow-lg shadow-[#86c7f3]/20 flex items-center justify-center min-w-[40px] min-h-[40px]">
+                <img src="/logo.svg" alt="Sortino" className="w-9 h-9 object-contain brightness-0 invert" />
               </div>
               <span className="font-bold text-xl tracking-tight">Sortino</span>
             </div>
