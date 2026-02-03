@@ -453,8 +453,8 @@ const PaperTrading: React.FC = () => {
         todayGainPercent={portfolioData?.todayGainPercent}
       />
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-1">
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_3fr] gap-6">
+        <div className="h-full min-w-0">
             <BotTile
               accountId={selectedAccountId}
               onStartBot={async () => {
@@ -513,7 +513,7 @@ const PaperTrading: React.FC = () => {
               }}
             />
         </div>
-        <div className="lg:col-span-2 bg-[#181818] rounded-2xl p-6 border border-zinc-800">
+        <div className="h-full min-h-0 min-w-0 bg-[#181818] rounded-2xl p-6 border border-zinc-800">
           <PortfolioChart type="Paper" accountId={selectedAccountId} currentEquity={portfolioEquity} />
         </div>
       </div>
