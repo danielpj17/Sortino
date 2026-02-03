@@ -97,10 +97,19 @@ const Dashboard: React.FC = () => {
             ) : (
               <>
                 <div className="flex flex-col gap-1">
-                  <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Total Portfolio Equity</p>
-                  <p className="text-xl font-bold text-white">
-                    ${formatNumber(paperSummary?.combinedEquity ?? 0, 2)}
-                  </p>
+                  <div className="flex justify-between items-baseline gap-2">
+                    <div>
+                      <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Total Portfolio Equity</p>
+                      <p className="text-xl font-bold text-white">
+                        ${formatNumber(paperSummary?.combinedEquity ?? 0, 2)}
+                      </p>
+                    </div>
+                    {paperSummary != null && (
+                      <div className={`text-[10px] font-bold tracking-wider px-2 py-1 rounded-full ${paperSummary.combinedGainDollars >= 0 ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
+                        {paperSummary.combinedGainDollars >= 0 ? '+' : ''}${formatNumber(paperSummary.combinedGainDollars, 2)} ({paperSummary.combinedGainPercent >= 0 ? '+' : ''}{paperSummary.combinedGainPercent.toFixed(2)}%) today
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <PortfolioChart
                   history={paperSummary?.combinedHistory ?? []}
@@ -154,10 +163,19 @@ const Dashboard: React.FC = () => {
             ) : (
               <>
                 <div className="flex flex-col gap-1">
-                  <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Total Portfolio Equity</p>
-                  <p className="text-xl font-bold text-white">
-                    ${formatNumber(liveSummary?.combinedEquity ?? 0, 2)}
-                  </p>
+                  <div className="flex justify-between items-baseline gap-2">
+                    <div>
+                      <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Total Portfolio Equity</p>
+                      <p className="text-xl font-bold text-white">
+                        ${formatNumber(liveSummary?.combinedEquity ?? 0, 2)}
+                      </p>
+                    </div>
+                    {liveSummary != null && (
+                      <div className={`text-[10px] font-bold tracking-wider px-2 py-1 rounded-full ${liveSummary.combinedGainDollars >= 0 ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
+                        {liveSummary.combinedGainDollars >= 0 ? '+' : ''}${formatNumber(liveSummary.combinedGainDollars, 2)} ({liveSummary.combinedGainPercent >= 0 ? '+' : ''}{liveSummary.combinedGainPercent.toFixed(2)}%) today
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <PortfolioChart
                   history={liveSummary?.combinedHistory ?? []}
@@ -226,7 +244,7 @@ const AccountTile: React.FC<AccountTileProps> = ({ name, equity, gainDollars, ga
       <p className="text-zinc-500 text-[10px] font-bold uppercase tracking-widest mb-1">{name}</p>
       <p className="text-xl font-bold tracking-tight text-white leading-none">${formatNumber(equity, 2)}</p>
       <div className="text-[10px] font-bold text-zinc-500 mt-2 uppercase tracking-wide">
-        {isPositive ? '+' : ''}${formatNumber(gainDollars, 2)} ({isPositive ? '+' : ''}{gainPercent.toFixed(2)}%)
+        {isPositive ? '+' : ''}${formatNumber(gainDollars, 2)} ({isPositive ? '+' : ''}{gainPercent.toFixed(2)}%) today
       </div>
     </>
   );

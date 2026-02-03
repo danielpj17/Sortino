@@ -1,10 +1,39 @@
 /**
  * Dashboard Summary API - Combined portfolio data for all accounts of a type (Paper | Live).
  * GET /api/dashboard-summary?type=Paper|Live&range=1D|1W|1M|1Y|YTD
- * Returns: combinedHistory, combinedEquity, combinedGainDollars, combinedGainPercent, accounts[]
+ * Returns: combinedHistory, combinedEquity, combinedGainDollars, combinedGainPercent (today's), accounts[]
  */
 
 import { getPool } from '../lib/db.js';
+
+const TZ = 'America/New_York';
+
+/** Return YYYY-MM-DD for a date in Eastern (for "today" comparison). */
+function toEasternDateKey(d) {
+  return new Date(d).toLocaleDateString('en-CA', { timeZone: TZ });
+}
+
+/**
+ * Compute today's $ and % gain from history and current equity.
+ * Today's open = first equity value with same calendar day (Eastern) as now; if none, use last point before today.
+ */
+function computeTodayGain(sorted, currentEquity) {
+  if (!sorted || sorted.length === 0) {
+    return { gainDollars: 0, gainPercent: 0 };
+  }
+  const todayKey = toEasternDateKey(new Date());
+  const todayPoints = sorted.filter((p) => toEasternDateKey(p.time) === todayKey);
+  let openVal;
+  if (todayPoints.length > 0) {
+    openVal = todayPoints[0].value;
+  } else {
+    const beforeToday = sorted.filter((p) => toEasternDateKey(p.time) < todayKey);
+    openVal = beforeToday.length > 0 ? beforeToday[beforeToday.length - 1].value : sorted[0].value;
+  }
+  const gainDollars = currentEquity - openVal;
+  const gainPercent = openVal > 0 ? (gainDollars / openVal) * 100 : 0;
+  return { gainDollars, gainPercent };
+}
 import { getDecryptedAccount } from '../lib/account-credentials.js';
 import { safeLogError } from '../lib/safeLog.js';
 
@@ -105,17 +134,7 @@ async function fetchAccountSummary(accountId, accountName, accountType, rangeVal
     }
 
     const sorted = [...history].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
-    let gainDollars = 0;
-    let gainPercent = 0;
-    if (sorted.length >= 2) {
-      const firstVal = sorted[0].value;
-      const lastVal = sorted[sorted.length - 1].value;
-      gainDollars = lastVal - firstVal;
-      gainPercent = firstVal > 0 ? (gainDollars / firstVal) * 100 : 0;
-    } else if (sorted.length === 1) {
-      gainDollars = equity - sorted[0].value;
-      gainPercent = sorted[0].value > 0 ? (gainDollars / sorted[0].value) * 100 : 0;
-    }
+    const { gainDollars, gainPercent } = computeTodayGain(sorted, equity);
 
     return {
       id: accountId,
@@ -224,15 +243,10 @@ export default async function handler(req, res) {
 
     const combinedHistory = mergeHistories(accountSummaries);
     const combinedEquity = accountSummaries.reduce((s, a) => s + a.equity, 0);
-
-    let combinedGainDollars = 0;
-    let combinedGainPercent = 0;
-    if (combinedHistory.length >= 2) {
-      const firstVal = combinedHistory[0].value;
-      const lastVal = combinedHistory[combinedHistory.length - 1].value;
-      combinedGainDollars = lastVal - firstVal;
-      combinedGainPercent = firstVal > 0 ? (combinedGainDollars / firstVal) * 100 : 0;
-    }
+    const { gainDollars: combinedGainDollars, gainPercent: combinedGainPercent } = computeTodayGain(
+      combinedHistory,
+      combinedEquity
+    );
 
     const accounts = accountSummaries.map((a) => ({
       id: a.id,
