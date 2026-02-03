@@ -14,6 +14,22 @@ import { TrendingUp, TrendingDown } from 'lucide-react';
 
 export type TimeRange = '1D' | '1W' | '1M' | '1Y' | 'YTD';
 
+function formatDateOnly(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
+}
+
+function formatDateAndTime(iso: string): string {
+  const d = new Date(iso);
+  const datePart = d.toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
+  const h = d.getHours();
+  const m = d.getMinutes();
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const displayH = h % 12 || 12;
+  const timePart = m === 0 ? `${displayH}:00 ${ampm}` : `${displayH}:${m.toString().padStart(2, '0')} ${ampm}`;
+  return `${datePart} ${timePart}`;
+}
+
 interface PortfolioChartProps {
   type?: 'Paper' | 'Live';
   accountId?: string | null;
@@ -139,31 +155,47 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({
       extended.push({ time: rangeEnd.toISOString(), value: endValue });
     }
 
-    return extended
+    // For 1W: downsample to 30-minute buckets (keep last value per bucket)
+    let toFormat = extended;
+    if (range === '1W') {
+      const bucketMs = 30 * 60 * 1000;
+      const bucketMap = new Map<number, { time: string; value: number }>();
+      for (const p of extended) {
+        const t = new Date(p.time).getTime();
+        const bucket = Math.floor(t / bucketMs) * bucketMs;
+        bucketMap.set(bucket, { time: new Date(bucket).toISOString(), value: p.value });
+      }
+      toFormat = Array.from(bucketMap.entries())
+        .sort((a, b) => a[0] - b[0])
+        .map(([, p]) => p);
+    }
+
+    const formatTimeLabel = (date: Date, includeTime: boolean) => {
+      const hours = date.getHours();
+      const minutes = date.getMinutes();
+      const ampm = hours >= 12 ? 'PM' : 'AM';
+      const displayHours = hours % 12 || 12;
+      const timePart =
+        minutes === 0
+          ? `${displayHours}:00 ${ampm}`
+          : `${displayHours}:${minutes.toString().padStart(2, '0')} ${ampm}`;
+      return includeTime ? timePart : '';
+    };
+
+    return toFormat
       .map((point: { time: string; value: number }) => {
         const date = new Date(point.time);
         let timeLabel = '';
 
         if (range === '1D') {
-          const hours = date.getHours();
-          const minutes = date.getMinutes();
-          const ampm = hours >= 12 ? 'PM' : 'AM';
-          const displayHours = hours % 12 || 12;
-          timeLabel =
-            minutes === 0
-              ? `${displayHours}:00 ${ampm}`
-              : `${displayHours}:${minutes.toString().padStart(2, '0')} ${ampm}`;
+          timeLabel = formatTimeLabel(date, true);
         } else if (range === '1W') {
-          // Weekday + day of month so each day is unique (e.g. "Mon 3", "Tue 4")
-          timeLabel = `${date.toLocaleDateString('en-US', { weekday: 'short' })} ${date.getDate()}`;
-        } else if (range === '1M') {
-          timeLabel = date.toLocaleDateString('en-US', { day: '2-digit', month: 'short' });
+          timeLabel = `${date.toLocaleDateString('en-US', { weekday: 'short' })} ${date.getDate()} ${formatTimeLabel(date, true)}`;
+        } else if (range === '1M' || range === 'YTD') {
+          // Use ISO as unique category; axis will show date-only via tickFormatter; tooltip shows full date+time
+          timeLabel = point.time;
         } else if (range === '1Y') {
-          // Month + 2-digit year so "Jan 25" is clearly January 2025, not day 25
-          timeLabel = `${date.toLocaleDateString('en-US', { month: 'short' })} '${String(date.getFullYear()).slice(-2)}`;
-        } else if (range === 'YTD') {
-          // Month + day so we see progression within the month (e.g. "Jan 1", "Jan 15", "Feb 1")
-          timeLabel = date.toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
+          timeLabel = `${date.toLocaleDateString('en-US', { month: 'short' })} ${date.getDate()} '${String(date.getFullYear()).slice(-2)}`;
         } else {
           timeLabel = date.toLocaleTimeString('en-US', {
             hour: '2-digit',
@@ -200,28 +232,6 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({
     const dataMax = Math.max(...vals);
     return [Math.max(0, dataMin - 500), dataMax + 500] as [number, number];
   }, [formattedChartData]);
-
-  // For 1W: last 5 market days + today (6 labels), evenly spread
-  const xAxisTicks = useMemo(() => {
-    if (range !== '1W' || formattedChartData.length === 0) return undefined;
-    const targetDates: string[] = [];
-    let d = new Date();
-    let count = 0;
-    while (count < 6) {
-      const day = d.getDay();
-      if (day >= 1 && day <= 5) {
-        targetDates.unshift(d.toDateString());
-        count++;
-      }
-      d = new Date(d.getTime() - 24 * 60 * 60 * 1000);
-    }
-    const ticks: number[] = [];
-    targetDates.forEach((targetKey) => {
-      const idx = formattedChartData.findIndex((p) => new Date(p.timestamp).toDateString() === targetKey);
-      if (idx >= 0) ticks.push(idx);
-    });
-    return ticks.length > 0 ? ticks : undefined;
-  }, [range, formattedChartData]);
 
   return (
     <div className="space-y-4">
@@ -285,19 +295,8 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({
               tickLine={false} 
               tick={{ fill: '#737373', fontSize: 10, fontWeight: 600 }} 
               dy={10}
-              ticks={xAxisTicks}
-              allowDuplicatedCategory={false}
-              interval={
-                range === '1D' || range === '1W'
-                  ? 'preserveStartEnd'
-                  : range === '1M'
-                    ? Math.max(0, Math.floor((formattedChartData.length - 1) / 10))
-                    : range === '1Y'
-                      ? Math.max(0, Math.floor((formattedChartData.length - 1) / 12))
-                      : range === 'YTD'
-                        ? Math.max(0, Math.floor((formattedChartData.length - 1) / 6))
-                        : 0
-              }
+              interval="preserveStartEnd"
+              tickFormatter={range === '1M' || range === 'YTD' ? (val: string) => formatDateOnly(val) : undefined}
             />
             <YAxis 
               axisLine={false} 
@@ -325,6 +324,11 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({
               itemStyle={{ color: accent === 'rose' ? '#f43f5e' : '#86c7f3' }}
               cursor={{ stroke: '#404040', strokeWidth: 1 }}
               formatter={(value: number) => [`$${value.toLocaleString()}`, 'Portfolio Value']}
+              labelFormatter={
+                range === '1M' || range === 'YTD'
+                  ? (label: string) => formatDateAndTime(label)
+                  : undefined
+              }
             />
             <Area 
               type="linear" 
