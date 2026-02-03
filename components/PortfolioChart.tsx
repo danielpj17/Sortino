@@ -103,10 +103,18 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({
     const sorted = [...dataSource].sort(
       (a, b) => new Date(a.time).getTime() - new Date(b.time).getTime()
     );
-    // Use first meaningful balance (e.g. opening deposit), not the first timestamp's value which can be 0 or negative
-    const firstMeaningful = sorted.find((p) => (p.value ?? 0) > 0) ?? sorted[0];
-    const firstMeaningfulValue = firstMeaningful.value;
-    const firstMeaningfulTime = new Date(firstMeaningful.time).getTime();
+    // Use account type opening balance for backfill (Paper $100k, Live $10k) - Alpaca's early values can be wrong
+    const isLive = type === 'Live' || accent === 'rose';
+    const openingBalance = isLive ? 10000 : 100000;
+    const firstMeaningful = sorted.find((p) => (p.value ?? 0) > 0) ?? null;
+    // Use first positive value only if it looks like real opening balance (>5k); otherwise use type-based default
+    const firstMeaningfulValue =
+      firstMeaningful && firstMeaningful.value >= 5000 ? firstMeaningful.value : openingBalance;
+    const firstMeaningfulTime = firstMeaningful
+      ? new Date(firstMeaningful.time).getTime()
+      : sorted.length > 0
+        ? new Date(sorted[0].time).getTime()
+        : rangeStart.getTime();
     const lastPoint = sorted[sorted.length - 1];
     const lastTime = new Date(lastPoint.time).getTime();
     const rangeStartMs = rangeStart.getTime();
@@ -117,9 +125,11 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({
       extended.push({ time: rangeStart.toISOString(), value: firstMeaningfulValue });
     }
     // Drop leading zero/negative points; for 1D also exclude points before rangeStart (today only)
+    // When no positive value exists, exclude all raw points and show only backfill + end
     extended.push(
       ...sorted.filter((p) => {
         const t = new Date(p.time).getTime();
+        if (!firstMeaningful) return false;
         return t >= firstMeaningfulTime && t >= rangeStartMs;
       })
     );
@@ -169,7 +179,7 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({
         };
       })
       .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-  }, [dataSource, range, currentEquity]);
+  }, [dataSource, range, currentEquity, type, accent]);
 
   const stats = useMemo(() => {
     if (formattedChartData.length === 0) {
@@ -182,19 +192,35 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({
     return { diff, percent };
   }, [formattedChartData]);
 
-  // For 1W: one tick per unique day - pass labels so XAxis shows exactly one per day
+  const yAxisDomain = useMemo(() => {
+    if (formattedChartData.length === 0) return undefined;
+    const vals = formattedChartData.map((d) => d.value).filter((v) => typeof v === 'number' && !Number.isNaN(v));
+    if (vals.length === 0) return undefined;
+    const dataMin = Math.min(...vals);
+    const dataMax = Math.max(...vals);
+    return [Math.max(0, dataMin - 500), dataMax + 500] as [number, number];
+  }, [formattedChartData]);
+
+  // For 1W: last 5 market days + today (6 labels), evenly spread
   const xAxisTicks = useMemo(() => {
     if (range !== '1W' || formattedChartData.length === 0) return undefined;
-    const seen = new Set<string>();
-    const ticks: string[] = [];
-    formattedChartData.forEach((d) => {
-      const key = new Date(d.timestamp).toDateString();
-      if (!seen.has(key)) {
-        seen.add(key);
-        ticks.push(d.time);
+    const targetDates: string[] = [];
+    let d = new Date();
+    let count = 0;
+    while (count < 6) {
+      const day = d.getDay();
+      if (day >= 1 && day <= 5) {
+        targetDates.unshift(d.toDateString());
+        count++;
       }
+      d = new Date(d.getTime() - 24 * 60 * 60 * 1000);
+    }
+    const ticks: number[] = [];
+    targetDates.forEach((targetKey) => {
+      const idx = formattedChartData.findIndex((p) => new Date(p.timestamp).toDateString() === targetKey);
+      if (idx >= 0) ticks.push(idx);
     });
-    return ticks;
+    return ticks.length > 0 ? ticks : undefined;
   }, [range, formattedChartData]);
 
   return (
@@ -260,6 +286,7 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({
               tick={{ fill: '#737373', fontSize: 10, fontWeight: 600 }} 
               dy={10}
               ticks={xAxisTicks}
+              allowDuplicatedCategory={false}
               interval={
                 range === '1D'
                   ? 'preserveStartEnd'
@@ -284,7 +311,7 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({
                 }
                 return `$${val.toLocaleString()}`;
               }}
-              domain={['dataMin - 500', 'dataMax + 500']}
+              domain={yAxisDomain ?? ['auto', 'auto']}
             />
             {formattedChartData.length > 0 && (
               <ReferenceLine 

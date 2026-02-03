@@ -4,7 +4,6 @@ import { HashRouter as Router, Routes, Route, Link, useLocation, Navigate } from
 import { 
   LayoutDashboard, 
   History, 
-  TrendingUp, 
   Settings as SettingsIcon, 
   Menu, 
   ChevronRight,
@@ -28,7 +27,7 @@ const App: React.FC = () => {
           <div className="p-6 flex items-center justify-between">
             <div className={`flex items-center gap-3 ${!isSidebarOpen && 'hidden'}`}>
               <div className="bg-[#86c7f3] p-2 rounded-lg shadow-lg shadow-[#86c7f3]/20">
-                <TrendingUp size={24} className="text-black" />
+                <img src="/logo.svg" alt="Sortino" className="w-6 h-6 object-contain" />
               </div>
               <span className="font-bold text-xl tracking-tight">Sortino</span>
             </div>
