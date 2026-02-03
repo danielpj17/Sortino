@@ -247,6 +247,16 @@ export default async function handler(req, res) {
         };
       });
     }
+    // Filter out leading zero/negative values so we start from first meaningful balance (opening deposit)
+    if (portfolioHistory.length > 0) {
+      const sortedHist = [...portfolioHistory].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+      const firstMeaningfulIdx = sortedHist.findIndex((p) => p.value > 0);
+      if (firstMeaningfulIdx > 0) {
+        portfolioHistory = sortedHist.slice(firstMeaningfulIdx);
+      } else if (firstMeaningfulIdx === -1 && portfolio_value > 0) {
+        portfolioHistory = [{ time: new Date().toISOString(), value: portfolio_value }];
+      }
+    }
 
     const sortedHistory = [...portfolioHistory].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
     const { gainDollars: todayGainDollars, gainPercent: todayGainPercent } = computeTodayGain(sortedHistory, portfolio_value);

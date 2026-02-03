@@ -144,7 +144,8 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({
               ? `${displayHours}:00 ${ampm}`
               : `${displayHours}:${minutes.toString().padStart(2, '0')} ${ampm}`;
         } else if (range === '1W') {
-          timeLabel = date.toLocaleDateString('en-US', { weekday: 'short' });
+          // Weekday + day of month so each day is unique (e.g. "Mon 3", "Tue 4")
+          timeLabel = `${date.toLocaleDateString('en-US', { weekday: 'short' })} ${date.getDate()}`;
         } else if (range === '1M') {
           timeLabel = date.toLocaleDateString('en-US', { day: '2-digit', month: 'short' });
         } else if (range === '1Y') {
@@ -180,6 +181,21 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({
     const percent = startValue > 0 ? (diff / startValue) * 100 : 0;
     return { diff, percent };
   }, [formattedChartData]);
+
+  // For 1W: one tick per unique day - pass labels so XAxis shows exactly one per day
+  const xAxisTicks = useMemo(() => {
+    if (range !== '1W' || formattedChartData.length === 0) return undefined;
+    const seen = new Set<string>();
+    const ticks: string[] = [];
+    formattedChartData.forEach((d) => {
+      const key = new Date(d.timestamp).toDateString();
+      if (!seen.has(key)) {
+        seen.add(key);
+        ticks.push(d.time);
+      }
+    });
+    return ticks;
+  }, [range, formattedChartData]);
 
   return (
     <div className="space-y-4">
@@ -243,14 +259,19 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({
               tickLine={false} 
               tick={{ fill: '#737373', fontSize: 10, fontWeight: 600 }} 
               dy={10}
+              ticks={xAxisTicks}
               interval={
                 range === '1D'
                   ? 'preserveStartEnd'
-                  : range === '1Y'
-                    ? Math.max(0, Math.floor((formattedChartData.length - 1) / 12))
-                    : range === 'YTD'
-                      ? Math.max(0, Math.floor((formattedChartData.length - 1) / 6))
-                      : 'auto'
+                  : range === '1W'
+                    ? 0
+                    : range === '1M'
+                      ? Math.max(0, Math.floor((formattedChartData.length - 1) / 10))
+                      : range === '1Y'
+                        ? Math.max(0, Math.floor((formattedChartData.length - 1) / 12))
+                        : range === 'YTD'
+                          ? Math.max(0, Math.floor((formattedChartData.length - 1) / 6))
+                          : 'auto'
               }
             />
             <YAxis 
