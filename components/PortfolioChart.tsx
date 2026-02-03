@@ -170,6 +170,20 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({
         .map(([, p]) => p);
     }
 
+    // Forward-fill zero/negative equity (e.g. weekend bars from Alpaca) so the curve doesn't drop to $0
+    if (range === '1W' || range === '1M' || range === '1Y' || range === 'YTD') {
+      let lastGood = toFormat[0]?.value;
+      if (typeof lastGood !== 'number' || !Number.isFinite(lastGood) || lastGood <= 0) {
+        lastGood = firstMeaningfulValue;
+      }
+      toFormat = toFormat.map((p) => {
+        const v = p.value;
+        if (typeof v === 'number' && Number.isFinite(v) && v > 0) lastGood = v;
+        else return { ...p, value: lastGood };
+        return p;
+      });
+    }
+
     const formatTimeLabel = (date: Date, includeTime: boolean) => {
       const hours = date.getHours();
       const minutes = date.getMinutes();
