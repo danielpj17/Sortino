@@ -72,7 +72,22 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({
           const res = await fetch(`/api/account-portfolio?account_id=${accountId}&include_portfolio_history=true&range=${range}`);
           if (res.ok) {
             const data = await res.json();
-            setChartData(data.portfolioHistory || []);
+            const history = data.portfolioHistory || [];
+            const useStatsFallback =
+              (range === '1M' || range === '1Y' || range === 'YTD') && history.length === 0;
+            if (useStatsFallback) {
+              const statsRes = await fetch(
+                `/api/stats?type=${type}&includeEquity=true&range=${range}&account_id=${accountId}`
+              );
+              if (statsRes.ok) {
+                const statsData = await statsRes.json();
+                setChartData(statsData.equityData || []);
+              } else {
+                setChartData(history);
+              }
+            } else {
+              setChartData(history);
+            }
           } else {
             setChartData([]);
           }
