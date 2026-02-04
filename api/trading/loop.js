@@ -366,6 +366,9 @@ export async function executeTradingLoop(accountId) {
   const strategyName = acc.strategy_name || "Sortino Model";
   const strategyKey = STRATEGY_NAME_TO_KEY[strategyName] || "sortino";
 
+  // Running buying power: decremented after each BUY so we don't overspend in one run
+  let remainingBuyingPower = effectiveBuyingPower;
+
   // #region agent log
   fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:157',message:'Account financials',data:{accountId,buyingPower,cash,portfolioValue,maxPositionSize:acc.max_position_size||0.4,maxTradeValue,tradeValue,allowShorting,account_type_display:acc.account_type_display,effectiveBuyingPower,isCashAccount},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
   // #endregion
@@ -485,7 +488,9 @@ export async function executeTradingLoop(accountId) {
         continue;
       }
 
-      const qty = Math.max(0, Math.floor(tradeValue / price));
+      // Use remaining buying power so we don't overspend across multiple tickers in one run
+      const tradeValueForTicker = Math.min(maxTradeValue, remainingBuyingPower);
+      const qty = Math.max(0, Math.floor(tradeValueForTicker / price));
       // Only skip for "no_size" when we need tradeValue-based qty (BUY or SELL to open short).
       // SELL to close long uses position qty (pos.qty), so allow proceeding when SELL + hasPosition.
       const needsTradeValueQty = actionType === 'BUY' || (actionType === 'SELL' && !pos);
@@ -495,7 +500,7 @@ export async function executeTradingLoop(accountId) {
       }
       
       // #region agent log
-      fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:183',message:'Trade size calculation',data:{accountId,ticker,actionType,price,tradeValue,qty},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+      fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:183',message:'Trade size calculation',data:{accountId,ticker,actionType,price,tradeValueForTicker,remainingBuyingPower,qty},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
       // #endregion
       
       // #region agent log
@@ -521,6 +526,17 @@ export async function executeTradingLoop(accountId) {
         if (pos) {
           if (side === 'short') {
             const closeQty = Math.abs(parseInt(pos.qty, 10));
+            const coverCost = closeQty * price;
+            if (remainingBuyingPower < coverCost) {
+              // #region agent log
+              fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:buy_cover',message:'Skipped: insufficient buying power to cover short',data:{accountId,ticker,closeQty,price,coverCost,remainingBuyingPower},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+              // #endregion
+              try {
+                await pool.query('UPDATE model_predictions SET skip_reason = $1 WHERE ticker = $2 AND account_id = $3 AND timestamp > NOW() - INTERVAL \'1 minute\' ORDER BY timestamp DESC LIMIT 1', ['insufficient_cash', ticker, accountId]);
+              } catch (updateErr) {}
+              results.push({ ticker, action: 'BUY', status: 'skip', reason: 'insufficient_cash' });
+              continue;
+            }
             // #region agent log
             fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:192',message:'Executing: BUY to cover short',data:{accountId,ticker,qty:closeQty,price},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
             // #endregion
@@ -531,6 +547,7 @@ export async function executeTradingLoop(accountId) {
               type: 'market',
               time_in_force: 'gtc',
             });
+            remainingBuyingPower -= coverCost;
             await insertTrade(pool, {
               ticker,
               action: 'BUY',
@@ -565,6 +582,17 @@ export async function executeTradingLoop(accountId) {
             results.push({ ticker, action: 'BUY', status: 'skip', reason: 'already_long' });
           }
         } else {
+          const buyCost = qty * price;
+          if (remainingBuyingPower < buyCost) {
+            // #region agent log
+            fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:buy_new',message:'Skipped: insufficient buying power for new position',data:{accountId,ticker,qty,price,buyCost,remainingBuyingPower},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+            // #endregion
+            try {
+              await pool.query('UPDATE model_predictions SET skip_reason = $1 WHERE ticker = $2 AND account_id = $3 AND timestamp > NOW() - INTERVAL \'1 minute\' ORDER BY timestamp DESC LIMIT 1', ['insufficient_cash', ticker, accountId]);
+            } catch (updateErr) {}
+            results.push({ ticker, action: 'BUY', status: 'skip', reason: 'insufficient_cash' });
+            continue;
+          }
           // #region agent log
           fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:212',message:'Executing: BUY new position',data:{accountId,ticker,qty,price},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
           // #endregion
@@ -575,6 +603,7 @@ export async function executeTradingLoop(accountId) {
             type: 'market',
             time_in_force: 'gtc',
           });
+          remainingBuyingPower -= buyCost;
           await insertTrade(pool, {
             ticker,
             action: 'BUY',
