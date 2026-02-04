@@ -159,15 +159,20 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({
     const rangeEndMs = rangeEnd.getTime();
 
     const extended: { time: string; value: number }[] = [];
-    if (firstMeaningfulTime > rangeStartMs) {
+    // Combined mode: always add rangeStart with combined opening so curve starts at 200k (not 100k) when first data point is at rangeStart
+    if (openingBalanceProp != null && openingBalanceProp > 0) {
+      extended.push({ time: rangeStart.toISOString(), value: openingBalanceProp });
+    } else if (firstMeaningfulTime > rangeStartMs) {
       extended.push({ time: rangeStart.toISOString(), value: firstMeaningfulValue });
     }
     // Drop leading zero/negative points; for 1D also exclude points before rangeStart (today only)
     // When no positive value exists, exclude all raw points and show only backfill + end
+    // Skip a point at rangeStart when we already added rangeStart with openingBalanceProp (avoid duplicate with wrong value)
     extended.push(
       ...sorted.filter((p) => {
         const t = new Date(p.time).getTime();
         if (!firstMeaningful) return false;
+        if (openingBalanceProp != null && openingBalanceProp > 0 && t === rangeStartMs) return false;
         return t >= firstMeaningfulTime && t >= rangeStartMs;
       })
     );
