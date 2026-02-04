@@ -171,8 +171,10 @@ async function fetchAccountSummary(accountId, accountName, accountType, rangeVal
  * Union of timestamps; for each account without a point at a timestamp, use first meaningful value
  * (opening balance) to backfill, so the combined line stays flat at the combined opening balance
  * until real data starts.
+ * @param {Array} accountSummaries - per-account { equity, history, ... }
+ * @param {'Paper'|'Live'} accountType - so we can use default opening when an account contributes 0 (e.g. fetch failed)
  */
-function mergeHistories(accountSummaries) {
+function mergeHistories(accountSummaries, accountType) {
   const timeSet = new Set();
   for (const acc of accountSummaries) {
     for (const p of acc.history) {
@@ -181,17 +183,24 @@ function mergeHistories(accountSummaries) {
   }
   const sortedTimes = Array.from(timeSet).sort((a, b) => a - b);
 
+  const defaultOpening = accountType === 'Paper' ? 100000 : 10000;
+  // When one account has firstValue 0 (e.g. fetch failed, equity 0), use default so combined opening isn't undercounted
+  const useDefaultWhenZero = accountSummaries.length > 1;
+
   // Pre-sort each account's history and find its first meaningful value (opening balance)
   // Use current equity when account has no history, no positive point, or first value is 0 (e.g. Alpaca zero bars) so it still contributes to combined backfill
   const preparedAccounts = accountSummaries.map((acc) => {
     const sorted = [...acc.history].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
     const firstMeaningful = sorted.find((p) => p.value > 0) ?? sorted[0];
-    const firstValue =
+    let firstValue =
       firstMeaningful?.value != null && firstMeaningful.value > 0
         ? firstMeaningful.value
         : acc.equity > 0
           ? acc.equity
           : 0;
+    if (firstValue === 0 && useDefaultWhenZero) {
+      firstValue = defaultOpening;
+    }
     return { sorted, firstValue };
   });
 
@@ -371,7 +380,7 @@ export default async function handler(req, res) {
       }
     }
 
-    const { history: combinedHistory, combinedOpeningBalance } = mergeHistories(accountSummaries);
+    const { history: combinedHistory, combinedOpeningBalance } = mergeHistories(accountSummaries, type);
     const combinedEquity = accountSummaries.reduce((s, a) => s + a.equity, 0);
     const { gainDollars: combinedGainDollars, gainPercent: combinedGainPercent } = computeTodayGain(
       combinedHistory,
