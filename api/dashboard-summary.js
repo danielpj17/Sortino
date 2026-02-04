@@ -197,6 +197,10 @@ function mergeHistories(accountSummaries) {
 
   const combinedOpeningBalance = preparedAccounts.reduce((sum, p) => sum + p.firstValue, 0);
 
+  // #region agent log
+  fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'dashboard-summary.js:mergeHistories', message: 'mergeHistories result', data: { combinedOpeningBalance, accountCount: accountSummaries.length, firstValues: preparedAccounts.map((p, i) => ({ idx: i, firstValue: p.firstValue, equity: accountSummaries[i].equity, historyLen: accountSummaries[i].history?.length })) }, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1', hypothesisId: 'H1' }) }).catch(() => {});
+  // #endregion
+
   if (sortedTimes.length === 0) {
     return { history: [], combinedOpeningBalance };
   }
