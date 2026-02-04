@@ -41,7 +41,8 @@ function mapRangeToAlpaca(range) {
   const map = {
     '1D': { period: '1D', timeframe: '5Min' },
     '1W': { period: '1W', timeframe: '15Min' },
-    '1M': { period: '1M', timeframe: '1H' },
+    // Same as account-portfolio: 1A/1D for 1M so Alpaca returns data; trim to 30 days below
+    '1M': { period: '1A', timeframe: '1D' },
     '1Y': { period: '1A', timeframe: '1D' },
     'YTD': { period: '1A', timeframe: '1D' },
   };
@@ -133,6 +134,14 @@ async function fetchAccountSummary(accountId, accountName, accountType, rangeVal
       history = [{ time: new Date().toISOString(), value: equity }];
     }
 
+    // For 1M we requested 1A/1D; keep only the last 30 days (same as account-portfolio)
+    if (rangeVal === '1M' && history.length > 0) {
+      const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+      history = history
+        .filter((p) => new Date(p.time).getTime() >= cutoff)
+        .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+    }
+
     const sorted = [...history].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
     const { gainDollars, gainPercent } = computeTodayGain(sorted, equity);
 
@@ -204,6 +213,89 @@ function mergeHistories(accountSummaries) {
   return { history, combinedOpeningBalance };
 }
 
+/**
+ * Build equity history from DB trades for one account (same logic as stats API).
+ * Used when Alpaca returns empty history for 1W/1M so combined chart matches individual chart.
+ */
+async function getEquityHistoryFromDb(pool, accountId, accountType, rangeVal) {
+  if (rangeVal !== '1W' && rangeVal !== '1M') return [];
+  const now = new Date();
+  let startTime;
+  if (rangeVal === '1W') {
+    startTime = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  } else {
+    startTime = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  }
+  const startingCapital = accountType === 'Paper' ? 100000 : 10000;
+  const timeInterval = rangeVal === '1W' ? 'hour' : 'day';
+
+  const equityQuery = `
+    SELECT t.timestamp, t.pnl, DATE_TRUNC('${timeInterval}', t.timestamp) as time_bucket
+    FROM trades t
+    JOIN accounts a ON t.account_id = a.id
+    WHERE t.timestamp >= $1 AND a.type = $2 AND t.account_id = $3
+    ORDER BY t.timestamp
+  `;
+  const equityResult = await pool.query(equityQuery, [
+    startTime.toISOString(),
+    accountType,
+    accountId,
+  ]);
+
+  const tradePoints = [];
+  let cumulativePnL = 0;
+
+  if (rangeVal === '1W') {
+    const bucketMap = new Map();
+    for (const row of equityResult.rows) {
+      cumulativePnL += parseFloat(row.pnl || 0);
+      const ts = new Date(row.timestamp).getTime();
+      const bucketMs = Math.floor(ts / (15 * 60 * 1000)) * 15 * 60 * 1000;
+      bucketMap.set(bucketMs, {
+        time: new Date(bucketMs).toISOString(),
+        cumulativePnL,
+      });
+    }
+    tradePoints.push(...Array.from(bucketMap.values()));
+    tradePoints.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+  } else {
+    const bucketMap = new Map();
+    for (const row of equityResult.rows) {
+      cumulativePnL += parseFloat(row.pnl || 0);
+      const bucketKey = new Date(row.time_bucket).toISOString();
+      bucketMap.set(bucketKey, { time: bucketKey, cumulativePnL });
+    }
+    tradePoints.push(...Array.from(bucketMap.values()));
+    tradePoints.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+  }
+
+  const formattedData = [
+    { time: startTime.toISOString(), value: startingCapital },
+    ...tradePoints.map((p) => ({
+      time: p.time,
+      value: Math.round(startingCapital + p.cumulativePnL),
+    })),
+  ];
+
+  const endValue =
+    currentEquity != null && currentEquity > 0
+      ? currentEquity
+      : formattedData.length > 0
+        ? formattedData[formattedData.length - 1].value
+        : startingCapital;
+  formattedData.push({ time: now.toISOString(), value: endValue });
+
+  const seen = new Set();
+  const unique = formattedData.filter((p) => {
+    const key = new Date(p.time).toISOString();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  unique.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+  return unique;
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
@@ -248,6 +340,25 @@ export default async function handler(req, res) {
         fetchAccountSummary(row.id, row.name, row.type, rangeVal)
       )
     );
+
+    // For 1W/1M, when Alpaca returned empty history for an account, use DB (stats) so combined = sum of individual charts
+    if (rangeVal === '1W' || rangeVal === '1M') {
+      for (const summary of accountSummaries) {
+        if (summary.history.length === 0 && summary.equity > 0) {
+          try {
+            summary.history = await getEquityHistoryFromDb(
+              pool,
+              summary.id,
+              type,
+              rangeVal,
+              summary.equity
+            );
+          } catch (e) {
+            safeLogError('[dashboard-summary] equity fallback for ' + summary.id + ':', e);
+          }
+        }
+      }
+    }
 
     const { history: combinedHistory, combinedOpeningBalance } = mergeHistories(accountSummaries);
     const combinedEquity = accountSummaries.reduce((s, a) => s + a.equity, 0);
