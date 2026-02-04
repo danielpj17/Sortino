@@ -226,7 +226,7 @@ function mergeHistories(accountSummaries) {
  * Build equity history from DB trades for one account (same logic as stats API).
  * Used when Alpaca returns empty history for 1W/1M so combined chart matches individual chart.
  */
-async function getEquityHistoryFromDb(pool, accountId, accountType, rangeVal) {
+async function getEquityHistoryFromDb(pool, accountId, accountType, rangeVal, currentEquity) {
   if (rangeVal !== '1W' && rangeVal !== '1M') return [];
   const now = new Date();
   let startTime;

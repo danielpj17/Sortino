@@ -193,17 +193,28 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({
     let toFormat = extended;
     if (range === '1W') {
       const bucketMs = 30 * 60 * 1000;
+      const rangeStartBucket = Math.floor(rangeStartMs / bucketMs) * bucketMs;
       const bucketMap = new Map<number, { time: string; value: number }>();
       for (const p of extended) {
         const t = new Date(p.time).getTime();
         const bucket = Math.floor(t / bucketMs) * bucketMs;
+        const existing = bucketMap.get(bucket);
+        // Keep combined opening at rangeStart bucket (don't overwrite with first API point in same bucket)
+        if (
+          openingBalanceProp != null &&
+          openingBalanceProp > 0 &&
+          bucket === rangeStartBucket &&
+          existing?.value === openingBalanceProp &&
+          p.value !== openingBalanceProp
+        ) {
+          continue;
+        }
         bucketMap.set(bucket, { time: new Date(bucket).toISOString(), value: p.value });
       }
       toFormat = Array.from(bucketMap.entries())
         .sort((a, b) => a[0] - b[0])
         .map(([, p]) => p);
       // #region agent log
-      const rangeStartBucket = Math.floor(rangeStartMs / bucketMs) * bucketMs;
       fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'PortfolioChart.tsx:after1Wbucket',message:'after 1W 30min bucket',data:{toFormatLen:toFormat.length,toFormatFirst:toFormat[0],rangeStartBucket,valueAtRangeStartBucket:bucketMap.get(rangeStartBucket)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H5'})}).catch(()=>{});
       // #endregion
     }
