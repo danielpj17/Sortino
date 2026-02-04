@@ -182,11 +182,16 @@ function mergeHistories(accountSummaries) {
   const sortedTimes = Array.from(timeSet).sort((a, b) => a - b);
 
   // Pre-sort each account's history and find its first meaningful value (opening balance)
-  // Use current equity when account has no history or no positive point so it still contributes to combined backfill
+  // Use current equity when account has no history, no positive point, or first value is 0 (e.g. Alpaca zero bars) so it still contributes to combined backfill
   const preparedAccounts = accountSummaries.map((acc) => {
     const sorted = [...acc.history].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
     const firstMeaningful = sorted.find((p) => p.value > 0) ?? sorted[0];
-    const firstValue = firstMeaningful?.value ?? (acc.equity > 0 ? acc.equity : 0);
+    const firstValue =
+      firstMeaningful?.value != null && firstMeaningful.value > 0
+        ? firstMeaningful.value
+        : acc.equity > 0
+          ? acc.equity
+          : 0;
     return { sorted, firstValue };
   });
 
