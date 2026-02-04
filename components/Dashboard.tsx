@@ -17,6 +17,7 @@ interface DashboardSummary {
   combinedEquity: number;
   combinedGainDollars: number;
   combinedGainPercent: number;
+  combinedOpeningBalance?: number;
   accounts: DashboardAccount[];
 }
 
@@ -117,6 +118,7 @@ const Dashboard: React.FC = () => {
                   range={range}
                   onRangeChange={setRange}
                   accent="sky"
+                  openingBalance={paperSummary?.combinedOpeningBalance}
                 />
               </>
             )}
@@ -183,6 +185,7 @@ const Dashboard: React.FC = () => {
                   range={range}
                   onRangeChange={setRange}
                   accent="rose"
+                  openingBalance={liveSummary?.combinedOpeningBalance}
                 />
               </>
             )}

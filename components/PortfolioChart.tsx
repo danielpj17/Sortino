@@ -40,6 +40,8 @@ interface PortfolioChartProps {
   onRangeChange?: (r: TimeRange) => void;
   /** Accent color for combined mode: 'sky' (Paper) or 'rose' (Live) */
   accent?: 'sky' | 'rose';
+  /** Combined mode: opening balance for backfill (e.g. sum of all accounts). When provided and > 0, used for range-start backfill and forward-fill. */
+  openingBalance?: number;
 }
 
 const PortfolioChart: React.FC<PortfolioChartProps> = ({
@@ -50,6 +52,7 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({
   range: rangeProp,
   onRangeChange,
   accent = 'sky',
+  openingBalance: openingBalanceProp,
 }) => {
   const [rangeLocal, setRangeLocal] = useState<TimeRange>('1D');
   const [chartData, setChartData] = useState<{ time: string; value: number }[]>([]);
@@ -138,9 +141,13 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({
     const isLive = type === 'Live' || accent === 'rose';
     const openingBalance = isLive ? 10000 : 100000;
     const firstMeaningful = sorted.find((p) => (p.value ?? 0) > 0) ?? null;
-    // Use first positive value only if it looks like real opening balance (>5k); otherwise use type-based default
+    // Combined mode: when parent passes openingBalance (e.g. combined opening), use it for backfill; otherwise infer from data or single-account default
     const firstMeaningfulValue =
-      firstMeaningful && firstMeaningful.value >= 5000 ? firstMeaningful.value : openingBalance;
+      openingBalanceProp != null && openingBalanceProp > 0
+        ? openingBalanceProp
+        : firstMeaningful && firstMeaningful.value >= 5000
+          ? firstMeaningful.value
+          : openingBalance;
     const firstMeaningfulTime = firstMeaningful
       ? new Date(firstMeaningful.time).getTime()
       : sorted.length > 0
@@ -247,7 +254,7 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({
         };
       })
       .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-  }, [dataSource, range, currentEquity, type, accent]);
+  }, [dataSource, range, currentEquity, type, accent, openingBalanceProp]);
 
   const stats = useMemo(() => {
     if (formattedChartData.length === 0) {

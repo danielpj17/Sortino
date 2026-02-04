@@ -171,15 +171,21 @@ function mergeHistories(accountSummaries) {
     }
   }
   const sortedTimes = Array.from(timeSet).sort((a, b) => a - b);
-  if (sortedTimes.length === 0) return [];
 
   // Pre-sort each account's history and find its first meaningful value (opening balance)
+  // Use current equity when account has no history or no positive point so it still contributes to combined backfill
   const preparedAccounts = accountSummaries.map((acc) => {
     const sorted = [...acc.history].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
     const firstMeaningful = sorted.find((p) => p.value > 0) ?? sorted[0];
-    const firstValue = firstMeaningful?.value ?? 0;
+    const firstValue = firstMeaningful?.value ?? (acc.equity > 0 ? acc.equity : 0);
     return { sorted, firstValue };
   });
+
+  const combinedOpeningBalance = preparedAccounts.reduce((sum, p) => sum + p.firstValue, 0);
+
+  if (sortedTimes.length === 0) {
+    return { history: [], combinedOpeningBalance };
+  }
 
   const result = [];
   for (const ms of sortedTimes) {
@@ -194,7 +200,8 @@ function mergeHistories(accountSummaries) {
     }
     result.push({ time: new Date(ms).toISOString(), value: total });
   }
-  return result.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+  const history = result.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+  return { history, combinedOpeningBalance };
 }
 
 export default async function handler(req, res) {
@@ -231,6 +238,7 @@ export default async function handler(req, res) {
         combinedEquity: 0,
         combinedGainDollars: 0,
         combinedGainPercent: 0,
+        combinedOpeningBalance: 0,
         accounts: [],
       });
     }
@@ -241,7 +249,7 @@ export default async function handler(req, res) {
       )
     );
 
-    const combinedHistory = mergeHistories(accountSummaries);
+    const { history: combinedHistory, combinedOpeningBalance } = mergeHistories(accountSummaries);
     const combinedEquity = accountSummaries.reduce((s, a) => s + a.equity, 0);
     const { gainDollars: combinedGainDollars, gainPercent: combinedGainPercent } = computeTodayGain(
       combinedHistory,
@@ -261,6 +269,7 @@ export default async function handler(req, res) {
       combinedEquity,
       combinedGainDollars,
       combinedGainPercent,
+      combinedOpeningBalance,
       accounts,
     });
   } catch (err) {
