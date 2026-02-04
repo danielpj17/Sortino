@@ -133,8 +133,24 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({
       rangeStart = new Date(now.getFullYear(), 0, 1);
     }
     const rangeEnd = now;
+    const rangeStartMs = rangeStart.getTime();
 
-    const sorted = [...dataSource].sort(
+    // 1W combined: force input to start at rangeStart with openingBalanceProp; drop any API points before range start
+    let source = dataSource;
+    if (
+      range === '1W' &&
+      openingBalanceProp != null &&
+      openingBalanceProp > 0 &&
+      dataSource.length > 0
+    ) {
+      const afterStart = dataSource.filter((p) => new Date(p.time).getTime() > rangeStartMs);
+      source = [
+        { time: rangeStart.toISOString(), value: openingBalanceProp },
+        ...afterStart,
+      ].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+    }
+
+    const sorted = [...source].sort(
       (a, b) => new Date(a.time).getTime() - new Date(b.time).getTime()
     );
     // Use account type opening balance for backfill (Paper $100k, Live $10k) - Alpaca's early values can be wrong
@@ -155,7 +171,6 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({
         : rangeStart.getTime();
     const lastPoint = sorted[sorted.length - 1];
     const lastTime = new Date(lastPoint.time).getTime();
-    const rangeStartMs = rangeStart.getTime();
     const rangeEndMs = rangeEnd.getTime();
 
     const extended: { time: string; value: number }[] = [];
