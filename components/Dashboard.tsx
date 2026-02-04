@@ -112,6 +112,12 @@ const Dashboard: React.FC = () => {
                     )}
                   </div>
                 </div>
+                {/* #region agent log */}
+                {(() => {
+                  fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Dashboard.tsx:PaperChart',message:'Paper chart render',data:{combinedOpeningBalance:paperSummary?.combinedOpeningBalance,historyLen:paperSummary?.combinedHistory?.length,firstHistory:paperSummary?.combinedHistory?.[0]},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+                  return null;
+                })()}
+                {/* #endregion */}
                 <PortfolioChart
                   history={paperSummary?.combinedHistory ?? []}
                   currentEquity={paperSummary?.combinedEquity}

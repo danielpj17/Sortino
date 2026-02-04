@@ -119,6 +119,10 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({
   const formattedChartData = useMemo(() => {
     if (dataSource.length === 0) return [];
 
+    // #region agent log
+    fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'PortfolioChart.tsx:formattedChartData:entry',message:'chart format entry',data:{range,isCombinedMode,openingBalanceProp,dataSourceLen:dataSource.length,firstPoint:dataSource[0]?{time:dataSource[0].time,value:dataSource[0].value}:null},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+    // #endregion
+
     const now = new Date();
     let rangeStart = new Date();
     if (range === '1D') {
@@ -165,6 +169,9 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({
     } else if (firstMeaningfulTime > rangeStartMs) {
       extended.push({ time: rangeStart.toISOString(), value: firstMeaningfulValue });
     }
+    // #region agent log
+    fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'PortfolioChart.tsx:afterRangeStart',message:'after rangeStart push',data:{rangeStartMs,rangeStartISO:rangeStart.toISOString(),extendedLen:extended.length,extendedFirst:extended[0],firstDataTime:sorted[0]?.time,firstDataValue:sorted[0]?.value,sameBucket:range=== '1W'? (Math.floor(rangeStartMs/(30*60*1000)) === (sorted[0]? Math.floor(new Date(sorted[0].time).getTime()/(30*60*1000)) : -1)) : null},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H3'})}).catch(()=>{});
+    // #endregion
     // Drop leading zero/negative points; for 1D also exclude points before rangeStart (today only)
     // When no positive value exists, exclude all raw points and show only backfill + end
     // Skip a point at rangeStart when we already added rangeStart with openingBalanceProp (avoid duplicate with wrong value)
@@ -195,6 +202,10 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({
       toFormat = Array.from(bucketMap.entries())
         .sort((a, b) => a[0] - b[0])
         .map(([, p]) => p);
+      // #region agent log
+      const rangeStartBucket = Math.floor(rangeStartMs / bucketMs) * bucketMs;
+      fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'PortfolioChart.tsx:after1Wbucket',message:'after 1W 30min bucket',data:{toFormatLen:toFormat.length,toFormatFirst:toFormat[0],rangeStartBucket,valueAtRangeStartBucket:bucketMap.get(rangeStartBucket)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H5'})}).catch(()=>{});
+      // #endregion
     }
 
     // Forward-fill zero/negative/outlier equity (weekend bars or bad API snapshots) so the curve doesn't show fake dips
