@@ -486,15 +486,17 @@ export async function executeTradingLoop(accountId) {
       }
 
       const qty = Math.max(0, Math.floor(tradeValue / price));
+      // Only skip for "no_size" when we need tradeValue-based qty (BUY or SELL to open short).
+      // SELL to close long uses position qty (pos.qty), so allow proceeding when SELL + hasPosition.
+      const needsTradeValueQty = actionType === 'BUY' || (actionType === 'SELL' && !pos);
+      if (needsTradeValueQty && qty <= 0) {
+        results.push({ ticker, status: 'skip', reason: 'no_size' });
+        continue;
+      }
       
       // #region agent log
       fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:183',message:'Trade size calculation',data:{accountId,ticker,actionType,price,tradeValue,qty},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
       // #endregion
-      
-      if (qty <= 0) {
-        results.push({ ticker, status: 'skip', reason: 'no_size' });
-        continue;
-      }
       
       // #region agent log
       fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:189',message:'Position check',data:{accountId,ticker,actionType,hasPosition:!!pos,side,qty,allowShorting,rawBuyProb,rawSellProb,smoothedBuyProb:smoothed.smoothedBuyProb,smoothedSellProb:smoothed.smoothedSellProb},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
