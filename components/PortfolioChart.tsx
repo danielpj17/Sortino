@@ -240,6 +240,16 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({
       });
     }
 
+    // Combined mode: ensure curve starts at combined opening (fix API or bucketing edge cases)
+    if (openingBalanceProp != null && openingBalanceProp > 0 && toFormat.length > 0) {
+      const firstTimeMs = new Date(toFormat[0].time).getTime();
+      if (firstTimeMs > rangeStartMs) {
+        toFormat.unshift({ time: rangeStart.toISOString(), value: openingBalanceProp });
+      } else if (toFormat[0].value < openingBalanceProp) {
+        toFormat[0] = { ...toFormat[0], value: openingBalanceProp };
+      }
+    }
+
     const formatTimeLabel = (date: Date, includeTime: boolean) => {
       const hours = date.getHours();
       const minutes = date.getMinutes();
