@@ -240,6 +240,18 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({
       }
     }
 
+    // 1W-only: replace leading segment below combined opening with single backfill point
+    if (range === '1W' && openingBalanceProp != null && openingBalanceProp > 0 && toFormat.length > 0) {
+      const i = toFormat.findIndex((p) => p.value >= openingBalanceProp);
+      if (i > 0 || i === -1) {
+        const sliceFrom = i === -1 ? 0 : i;
+        toFormat = [
+          { time: rangeStart.toISOString(), value: openingBalanceProp },
+          ...toFormat.slice(sliceFrom),
+        ];
+      }
+    }
+
     const formatTimeLabel = (date: Date, includeTime: boolean) => {
       const hours = date.getHours();
       const minutes = date.getMinutes();

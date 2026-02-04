@@ -374,7 +374,15 @@ export default async function handler(req, res) {
       }
     }
 
-    const { history: combinedHistory, combinedOpeningBalance } = mergeHistories(accountSummaries, type);
+    let { history: combinedHistory, combinedOpeningBalance } = mergeHistories(accountSummaries, type);
+    // For 1W: prepend range-start point so combined chart backfills at combined opening before accounts were opened
+    if (rangeVal === '1W' && combinedOpeningBalance > 0 && combinedHistory.length > 0) {
+      const rangeStart = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      combinedHistory = [
+        { time: rangeStart.toISOString(), value: combinedOpeningBalance },
+        ...combinedHistory,
+      ].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+    }
     const combinedEquity = accountSummaries.reduce((s, a) => s + a.equity, 0);
     const { gainDollars: combinedGainDollars, gainPercent: combinedGainPercent } = computeTodayGain(
       combinedHistory,
