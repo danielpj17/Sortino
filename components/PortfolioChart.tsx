@@ -135,17 +135,27 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({
     const rangeEnd = now;
     const rangeStartMs = rangeStart.getTime();
 
-    // 1W combined: force input to start at rangeStart with openingBalanceProp; drop any API points before range start
+    // 1W combined: effective combined opening (API may send 0 or omit; fallback for 2x standard opening)
+    const effectiveCombinedOpening =
+      openingBalanceProp != null && openingBalanceProp > 0
+        ? openingBalanceProp
+        : isCombinedMode && range === '1W'
+          ? accent === 'rose'
+            ? 20000
+            : 200000
+          : undefined;
+
+    // 1W combined: force input to start at rangeStart with combined opening; drop any API points before range start
     let source = dataSource;
     if (
       range === '1W' &&
-      openingBalanceProp != null &&
-      openingBalanceProp > 0 &&
+      effectiveCombinedOpening != null &&
+      effectiveCombinedOpening > 0 &&
       dataSource.length > 0
     ) {
       const afterStart = dataSource.filter((p) => new Date(p.time).getTime() > rangeStartMs);
       source = [
-        { time: rangeStart.toISOString(), value: openingBalanceProp },
+        { time: rangeStart.toISOString(), value: effectiveCombinedOpening },
         ...afterStart,
       ].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
     }
@@ -159,11 +169,13 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({
     const firstMeaningful = sorted.find((p) => (p.value ?? 0) > 0) ?? null;
     // Combined mode: when parent passes openingBalance (e.g. combined opening), use it for backfill; otherwise infer from data or single-account default
     const firstMeaningfulValue =
-      openingBalanceProp != null && openingBalanceProp > 0
-        ? openingBalanceProp
-        : firstMeaningful && firstMeaningful.value >= 5000
-          ? firstMeaningful.value
-          : openingBalance;
+      effectiveCombinedOpening != null && effectiveCombinedOpening > 0
+        ? effectiveCombinedOpening
+        : openingBalanceProp != null && openingBalanceProp > 0
+          ? openingBalanceProp
+          : firstMeaningful && firstMeaningful.value >= 5000
+            ? firstMeaningful.value
+            : openingBalance;
     const firstMeaningfulTime = firstMeaningful
       ? new Date(firstMeaningful.time).getTime()
       : sorted.length > 0
@@ -175,19 +187,22 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({
 
     const extended: { time: string; value: number }[] = [];
     // Combined mode: always add rangeStart with combined opening so curve starts at 200k (not 100k) when first data point is at rangeStart
-    if (openingBalanceProp != null && openingBalanceProp > 0) {
+    if (effectiveCombinedOpening != null && effectiveCombinedOpening > 0) {
+      extended.push({ time: rangeStart.toISOString(), value: effectiveCombinedOpening });
+    } else if (openingBalanceProp != null && openingBalanceProp > 0) {
       extended.push({ time: rangeStart.toISOString(), value: openingBalanceProp });
     } else if (firstMeaningfulTime > rangeStartMs) {
       extended.push({ time: rangeStart.toISOString(), value: firstMeaningfulValue });
     }
     // Drop leading zero/negative points; for 1D also exclude points before rangeStart (today only)
     // When no positive value exists, exclude all raw points and show only backfill + end
-    // Skip a point at rangeStart when we already added rangeStart with openingBalanceProp (avoid duplicate with wrong value)
+    // Skip a point at rangeStart when we already added rangeStart with combined opening (avoid duplicate with wrong value)
+    const combinedOpeningForFilter = effectiveCombinedOpening ?? openingBalanceProp;
     extended.push(
       ...sorted.filter((p) => {
         const t = new Date(p.time).getTime();
         if (!firstMeaningful) return false;
-        if (openingBalanceProp != null && openingBalanceProp > 0 && t === rangeStartMs) return false;
+        if (combinedOpeningForFilter != null && combinedOpeningForFilter > 0 && t === rangeStartMs) return false;
         return t >= firstMeaningfulTime && t >= rangeStartMs;
       })
     );
@@ -208,12 +223,13 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({
         const bucket = Math.floor(t / bucketMs) * bucketMs;
         const existing = bucketMap.get(bucket);
         // Keep combined opening at rangeStart bucket (don't overwrite with first API point in same bucket)
+        const combinedOpeningForBucket = effectiveCombinedOpening ?? openingBalanceProp;
         if (
-          openingBalanceProp != null &&
-          openingBalanceProp > 0 &&
+          combinedOpeningForBucket != null &&
+          combinedOpeningForBucket > 0 &&
           bucket === rangeStartBucket &&
-          existing?.value === openingBalanceProp &&
-          p.value !== openingBalanceProp
+          existing?.value === combinedOpeningForBucket &&
+          p.value !== combinedOpeningForBucket
         ) {
           continue;
         }
@@ -246,22 +262,23 @@ const PortfolioChart: React.FC<PortfolioChartProps> = ({
     }
 
     // Combined mode: ensure curve starts at combined opening (fix API or bucketing edge cases)
-    if (openingBalanceProp != null && openingBalanceProp > 0 && toFormat.length > 0) {
+    const combinedOpeningForCurve = effectiveCombinedOpening ?? openingBalanceProp;
+    if (combinedOpeningForCurve != null && combinedOpeningForCurve > 0 && toFormat.length > 0) {
       const firstTimeMs = new Date(toFormat[0].time).getTime();
       if (firstTimeMs > rangeStartMs) {
-        toFormat.unshift({ time: rangeStart.toISOString(), value: openingBalanceProp });
-      } else if (toFormat[0].value < openingBalanceProp) {
-        toFormat[0] = { ...toFormat[0], value: openingBalanceProp };
+        toFormat.unshift({ time: rangeStart.toISOString(), value: combinedOpeningForCurve });
+      } else if (toFormat[0].value < combinedOpeningForCurve) {
+        toFormat[0] = { ...toFormat[0], value: combinedOpeningForCurve };
       }
     }
 
     // 1W-only: replace leading segment below combined opening with single backfill point
-    if (range === '1W' && openingBalanceProp != null && openingBalanceProp > 0 && toFormat.length > 0) {
-      const i = toFormat.findIndex((p) => p.value >= openingBalanceProp);
+    if (range === '1W' && combinedOpeningForCurve != null && combinedOpeningForCurve > 0 && toFormat.length > 0) {
+      const i = toFormat.findIndex((p) => p.value >= combinedOpeningForCurve);
       if (i > 0 || i === -1) {
         const sliceFrom = i === -1 ? 0 : i;
         toFormat = [
-          { time: rangeStart.toISOString(), value: openingBalanceProp },
+          { time: rangeStart.toISOString(), value: combinedOpeningForCurve },
           ...toFormat.slice(sliceFrom),
         ];
       }
