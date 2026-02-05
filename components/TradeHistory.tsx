@@ -47,25 +47,80 @@ const TradeHistory: React.FC = () => {
     }
   }, [filterType, accounts, selectedAccountId]);
 
-  // Fetch Real Data
+  // Convert Alpaca completedTrades (same as Paper/Live) into ledger rows (BUY + SELL per round-trip)
+  const completedTradesToLedgerRows = (
+    completedTrades: Array<{ symbol: string; qty: number; buyPrice: number; sellPrice: number; buyTime: string; sellTime: string; pnl: number }>,
+    accountId: string
+  ): any[] => {
+    const rows: any[] = [];
+    (completedTrades || []).forEach((ct, i) => {
+      rows.push({
+        id: `alpaca-${i}-buy`,
+        ticker: ct.symbol,
+        timestamp: ct.buyTime,
+        action: 'BUY',
+        price: ct.buyPrice,
+        quantity: ct.qty,
+        pnl: 0,
+        account_id: accountId,
+        strategy: 'Alpaca',
+      });
+      rows.push({
+        id: `alpaca-${i}-sell`,
+        ticker: ct.symbol,
+        timestamp: ct.sellTime,
+        action: 'SELL',
+        price: ct.sellPrice,
+        quantity: ct.qty,
+        pnl: ct.pnl,
+        account_id: accountId,
+        strategy: 'Alpaca',
+      });
+    });
+    return rows.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  };
+
+  // Fetch real data: when a single account is selected, use same source as Paper/Live (Alpaca completedTrades), else DB trades
   useEffect(() => {
     const fetchHistory = async () => {
       try {
+        // When a specific account is selected, fetch Alpaca completed trades (same as Paper/Live) so History matches
+        if (selectedAccountId) {
+          const [portfolioRes, dbRes] = await Promise.all([
+            fetch(`/api/account-portfolio?account_id=${selectedAccountId}&include_activities=true`),
+            (() => {
+              let url = `/api/trades?account_id=${selectedAccountId}`;
+              if (filterType !== 'All') url = `/api/trades?type=${filterType}&account_id=${selectedAccountId}`;
+              return fetch(url);
+            })(),
+          ]);
+
+          let portfolioData: { completedTrades?: Array<{ symbol: string; qty: number; buyPrice: number; sellPrice: number; buyTime: string; sellTime: string; pnl: number }> } = {};
+          if (portfolioRes.ok) {
+            portfolioData = await portfolioRes.json();
+          }
+          const alpacaCompleted = Array.isArray(portfolioData.completedTrades) ? portfolioData.completedTrades : [];
+
+          // Prefer Alpaca completed trades when available (same as Paper/Live), else fall back to DB
+          if (alpacaCompleted.length > 0) {
+            const ledgerRows = completedTradesToLedgerRows(alpacaCompleted, selectedAccountId);
+            setTrades(ledgerRows);
+          } else {
+            const dbData = dbRes.ok ? await dbRes.json() : [];
+            setTrades(Array.isArray(dbData) ? dbData : []);
+          }
+          return;
+        }
+
+        // No account selected: use DB only
         let url = '/api/trades';
         if (filterType !== 'All') {
           url = `/api/trades?type=${filterType}`;
-          if (selectedAccountId) {
-            url += `&account_id=${selectedAccountId}`;
-          }
-        } else if (selectedAccountId) {
-          url = `/api/trades?account_id=${selectedAccountId}`;
         }
-        
         const res = await fetch(url);
         if (res.ok) {
           const data = await res.json();
-          const safeData = Array.isArray(data) ? data : [];
-          setTrades(safeData);
+          setTrades(Array.isArray(data) ? data : []);
         } else {
           console.error("Failed to load history:", res.status);
           setTrades([]);
