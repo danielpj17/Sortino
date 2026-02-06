@@ -31,6 +31,44 @@ interface Position {
   holdDuration?: string;
 }
 
+/** FIFO: sells consume buys. Returns symbol -> earliest buy timestamp still open (current position). */
+function getPositionOpenTimes(activities: Array<{ symbol?: string; symbol_id?: string; side?: string; qty?: number; cum_qty?: number; transaction_time?: string; trade_time?: string; created_at?: string }>): Record<string, string> {
+  const buyQueue: Record<string, Array<{ qty: number; time: string }>> = {};
+  const sorted = [...activities].sort((a, b) => {
+    const ta = new Date(a.transaction_time || a.trade_time || a.created_at || 0).getTime();
+    const tb = new Date(b.transaction_time || b.trade_time || b.created_at || 0).getTime();
+    return ta - tb;
+  });
+  for (const f of sorted) {
+    const symbol = f.symbol || f.symbol_id;
+    const side = (f.side || '').toLowerCase();
+    const qty = parseInt(String(f.qty ?? f.cum_qty ?? 0), 10);
+    const time = f.transaction_time || f.trade_time || f.created_at || '';
+    if (!symbol || qty <= 0) continue;
+    if (side === 'buy') {
+      if (!buyQueue[symbol]) buyQueue[symbol] = [];
+      buyQueue[symbol].push({ qty, time });
+    } else if (side === 'sell') {
+      if (!buyQueue[symbol] || buyQueue[symbol].length === 0) continue;
+      let remaining = qty;
+      while (remaining > 0 && buyQueue[symbol].length > 0) {
+        const lot = buyQueue[symbol][0];
+        const take = Math.min(remaining, lot.qty);
+        remaining -= take;
+        lot.qty -= take;
+        if (lot.qty <= 0) buyQueue[symbol].shift();
+      }
+    }
+  }
+  const result: Record<string, string> = {};
+  for (const [symbol, lots] of Object.entries(buyQueue)) {
+    if (lots.length > 0 && lots[0].qty > 0) {
+      result[symbol] = lots[0].time;
+    }
+  }
+  return result;
+}
+
 const LiveTrading: React.FC = () => {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [stats, setStats] = useState({ totalPnL: 0, winRate: 0, totalTrades: 0 });
@@ -288,25 +326,17 @@ const LiveTrading: React.FC = () => {
       })
       .map((ct) => ct.symbol)
   );
+  const activities = portfolioData?.activities ?? [];
+  const positionOpenTimes = getPositionOpenTimes(activities);
   const alpacaOpenPositions = (portfolioData?.positions ?? [])
     .filter((p) => !recentCompletedSymbols.has(p.symbol))
     .map((p) => {
-      const activities = portfolioData?.activities ?? [];
-      const buyFill = activities
-        .filter((a) => (a.symbol || a.symbol_id) === p.symbol && (a.side || '').toLowerCase() === 'buy')
-        .sort((a, b) => {
-          const ta = new Date(a.transaction_time || a.trade_time || a.created_at || 0).getTime();
-          const tb = new Date(b.transaction_time || b.trade_time || b.created_at || 0).getTime();
-          return ta - tb;
-        })[0];
-      const buyTimestamp = buyFill
-        ? (buyFill.transaction_time || buyFill.trade_time || buyFill.created_at || '')
-        : (() => {
-            const buyTradeFromDb = [...trades]
-              .filter((t) => t.ticker === p.symbol && t.action === 'BUY')
-              .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())[0];
-            return buyTradeFromDb?.timestamp ?? '';
-          })();
+      const buyTimestamp = positionOpenTimes[p.symbol] ?? (() => {
+        const buyTradeFromDb = [...trades]
+          .filter((t) => t.ticker === p.symbol && t.action === 'BUY')
+          .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())[0];
+        return buyTradeFromDb?.timestamp ?? '';
+      })();
       return {
         buyTrade: {
           id: p.symbol,
