@@ -106,6 +106,28 @@ function matchFillsToCompletedTrades(fills) {
   return completed;
 }
 
+/** Group completed trades that share the same symbol, buyTime, sellTime into one row (sum qty and pnl). */
+function aggregateCompletedTrades(completed) {
+  const byKey = {};
+  for (const t of completed) {
+    const key = `${t.symbol}|${t.buyTime}|${t.sellTime}`;
+    if (!byKey[key]) {
+      byKey[key] = {
+        symbol: t.symbol,
+        qty: 0,
+        buyPrice: t.buyPrice,
+        sellPrice: t.sellPrice,
+        buyTime: t.buyTime,
+        sellTime: t.sellTime,
+        pnl: 0,
+      };
+    }
+    byKey[key].qty += t.qty;
+    byKey[key].pnl += t.pnl;
+  }
+  return Object.values(byKey);
+}
+
 async function alpacaFetch(baseUrl, path, { method = 'GET', body, queryParams } = {}, headers = {}) {
   let url = `${baseUrl}${path}`;
   if (queryParams && Object.keys(queryParams).length > 0) {
@@ -236,7 +258,7 @@ export default async function handler(req, res) {
         }))
       : [];
 
-    const completedTrades = matchFillsToCompletedTrades(allFills);
+    const completedTrades = aggregateCompletedTrades(matchFillsToCompletedTrades(allFills));
 
     let portfolioHistory = [];
     if (historyData && Array.isArray(historyData.equity) && Array.isArray(historyData.timestamp)) {
