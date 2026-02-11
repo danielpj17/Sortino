@@ -339,7 +339,7 @@ const LiveTrading: React.FC = () => {
       })();
       return {
         buyTrade: {
-          id: p.symbol,
+          id: buyTimestamp ? `${p.symbol}-${buyTimestamp}` : p.symbol,
           ticker: p.symbol,
           price: p.avg_entry_price,
           quantity: p.qty,

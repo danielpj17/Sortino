@@ -106,26 +106,38 @@ function matchFillsToCompletedTrades(fills) {
   return completed;
 }
 
-/** Group completed trades that share the same symbol, buyTime, sellTime into one row (sum qty and pnl). */
+/** Group by buy event (symbol + buyTime) so one row per buy; all sells that closed that buy merge. */
 function aggregateCompletedTrades(completed) {
   const byKey = {};
   for (const t of completed) {
-    const key = `${t.symbol}|${t.buyTime}|${t.sellTime}`;
+    const key = `${t.symbol}|${t.buyTime}`;
     if (!byKey[key]) {
       byKey[key] = {
         symbol: t.symbol,
         qty: 0,
-        buyPrice: t.buyPrice,
-        sellPrice: t.sellPrice,
+        costBasis: 0,
+        sellValue: 0,
         buyTime: t.buyTime,
         sellTime: t.sellTime,
         pnl: 0,
       };
     }
-    byKey[key].qty += t.qty;
-    byKey[key].pnl += t.pnl;
+    const g = byKey[key];
+    g.qty += t.qty;
+    g.costBasis += t.qty * t.buyPrice;
+    g.sellValue += t.qty * t.sellPrice;
+    g.pnl += t.pnl;
+    if (new Date(t.sellTime).getTime() > new Date(g.sellTime).getTime()) g.sellTime = t.sellTime;
   }
-  return Object.values(byKey);
+  return Object.values(byKey).map((g) => ({
+    symbol: g.symbol,
+    qty: g.qty,
+    buyPrice: g.qty > 0 ? g.costBasis / g.qty : 0,
+    sellPrice: g.qty > 0 ? g.sellValue / g.qty : 0,
+    buyTime: g.buyTime,
+    sellTime: g.sellTime,
+    pnl: g.pnl,
+  }));
 }
 
 async function alpacaFetch(baseUrl, path, { method = 'GET', body, queryParams } = {}, headers = {}) {
