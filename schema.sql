@@ -42,16 +42,15 @@ CREATE TABLE IF NOT EXISTS trades (
     experience_id INTEGER
 );
 
--- Index for faster lookups on ticker and date
-CREATE INDEX idx_trades_ticker ON trades(ticker);
-CREATE INDEX idx_trades_timestamp ON trades(timestamp);
-CREATE INDEX idx_trades_account_id ON trades(account_id);
-CREATE INDEX idx_trades_experience_id ON trades(experience_id);
-
--- Ensure account_id column exists (migration for existing tables)
--- Note: If account_id already exists as INTEGER, you'll need to manually migrate the data
+-- Ensure account_id and experience_id columns exist (migration for existing tables)
 ALTER TABLE trades ADD COLUMN IF NOT EXISTS account_id TEXT REFERENCES accounts(id);
 ALTER TABLE trades ADD COLUMN IF NOT EXISTS experience_id INTEGER;
+
+-- Index for faster lookups on ticker and date
+CREATE INDEX IF NOT EXISTS idx_trades_ticker ON trades(ticker);
+CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON trades(timestamp);
+CREATE INDEX IF NOT EXISTS idx_trades_account_id ON trades(account_id);
+CREATE INDEX IF NOT EXISTS idx_trades_experience_id ON trades(experience_id);
 
 -- Training experiences table: stores observations, actions, and rewards for RL training
 CREATE TABLE IF NOT EXISTS training_experiences (
@@ -89,6 +88,10 @@ CREATE TABLE IF NOT EXISTS model_versions (
     is_active BOOLEAN DEFAULT FALSE,  -- Only one active version at a time
     notes TEXT
 );
+
+-- Migration: Add strategy column for multi-strategy support (sortino, upside)
+ALTER TABLE model_versions ADD COLUMN IF NOT EXISTS strategy TEXT DEFAULT 'sortino';
+CREATE INDEX IF NOT EXISTS idx_model_versions_strategy ON model_versions(strategy);
 
 -- Indexes for model_versions
 CREATE INDEX idx_model_versions_active ON model_versions(is_active);

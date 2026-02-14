@@ -172,7 +172,7 @@ def update_incomplete_experiences(conn, reward_fn):
         if buy_price and sell_price and quantity:
             # Calculate reward
             return_pct = (float(sell_price) - float(buy_price)) / float(buy_price)
-            reward = _sortino_reward(return_pct)
+            reward = reward_fn(return_pct)
             
             # Update experience
             cur.execute("""
@@ -204,6 +204,8 @@ def online_learning_update(model, conn, experiences, reward_fn, timesteps=1000):
     if not experiences:
         print("No experiences available for online learning")
         return model
+    
+    GymnasiumWrapper = make_gymnasium_wrapper(reward_fn)
     
     print(f"Performing online learning update with {len(experiences)} experiences...")
     
@@ -254,6 +256,9 @@ def full_retrain(conn, model_dir=None, strategy="sortino"):
     if model_dir is None:
         model_dir = os.path.dirname(__file__)
     
+    reward_fn = get_reward_function(strategy)
+    GymnasiumWrapper = make_gymnasium_wrapper(reward_fn)
+    
     print("Starting full retrain with historical data + live experiences...")
     
     model = None
@@ -292,7 +297,7 @@ def full_retrain(conn, model_dir=None, strategy="sortino"):
     return model
 
 
-def should_full_retrain(conn):
+def should_full_retrain(conn, strategy="sortino"):
     """
     Determine if we should do a full retrain (e.g., weekly).
     
@@ -347,6 +352,22 @@ def main():
     conn = get_db_connection(NEON_DATABASE_URL)
     
     try:
+        # Ensure required tables exist
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables
+                WHERE table_schema = 'public' AND table_name = 'training_experiences'
+            )
+        """)
+        if not cur.fetchone()[0]:
+            cur.close()
+            conn.close()
+            print("\n✗ Database schema incomplete: training_experiences table not found.")
+            print("  Run 'python setup_db.py' from the python_engine folder to apply the schema.")
+            sys.exit(1)
+        cur.close()
+        
         # Update incomplete experiences first (with strategy-specific reward)
         update_incomplete_experiences(conn, reward_fn)
         
@@ -402,6 +423,7 @@ def main():
         print(f"\n✗ Error during retraining: {e}")
         import traceback
         traceback.print_exc()
+        sys.exit(1)
     finally:
         conn.close()
 
