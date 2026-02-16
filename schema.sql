@@ -42,9 +42,10 @@ CREATE TABLE IF NOT EXISTS trades (
     experience_id INTEGER
 );
 
--- Ensure account_id and experience_id columns exist (migration for existing tables)
+-- Ensure account_id, experience_id, and sell_trade_id columns exist (migration for existing tables)
 ALTER TABLE trades ADD COLUMN IF NOT EXISTS account_id TEXT REFERENCES accounts(id);
 ALTER TABLE trades ADD COLUMN IF NOT EXISTS experience_id INTEGER;
+ALTER TABLE trades ADD COLUMN IF NOT EXISTS sell_trade_id INTEGER REFERENCES trades(id);
 
 -- Index for faster lookups on ticker and date
 CREATE INDEX IF NOT EXISTS idx_trades_ticker ON trades(ticker);

@@ -83,7 +83,7 @@ def main():
             print(f"      {stmt}...")
         sys.exit(1)
 
-    print(f"✓ Schema applied successfully ({success} statements).")
+    print(f"[OK] Schema applied successfully ({success} statements).")
 
 
 if __name__ == "__main__":
