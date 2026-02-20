@@ -242,13 +242,14 @@ def online_learning_update(model, conn, experiences, reward_fn, timesteps=1000):
     return model
 
 
-def full_retrain(conn, model_dir=None, strategy="sortino"):
+def full_retrain(db_url, model_dir=None, strategy="sortino"):
     """
     Perform full retraining from scratch using all historical data + experiences.
     
     Args:
-        conn: Database connection
+        db_url: Database connection URL (fresh conn used after training to avoid timeout)
         model_dir: Directory to save model
+        strategy: 'sortino' or 'upside'
     
     Returns:
         Trained model
@@ -288,11 +289,15 @@ def full_retrain(conn, model_dir=None, strategy="sortino"):
             print(f"Error training on {ticker}: {e}")
             continue
     
-    # Load and incorporate live experiences
-    experiences = load_experiences_from_db(conn, limit=10000)  # Limit to prevent memory issues
-    if experiences:
-        print(f"Incorporating {len(experiences)} live trading experiences...")
-        model = online_learning_update(model, conn, experiences, reward_fn, timesteps=2000)
+    # Load and incorporate live experiences (fresh conn - previous one may have timed out during long training)
+    conn = get_db_connection(db_url)
+    try:
+        experiences = load_experiences_from_db(conn, limit=10000)  # Limit to prevent memory issues
+        if experiences:
+            print(f"Incorporating {len(experiences)} live trading experiences...")
+            model = online_learning_update(model, conn, experiences, reward_fn, timesteps=2000)
+    finally:
+        conn.close()
     
     return model
 
@@ -377,13 +382,13 @@ def main():
         model = get_latest_model(NEON_DATABASE_URL, model_dir, strategy=strategy)
         if model is None:
             print("No model found. Running initial full training...")
-            model = full_retrain(conn, model_dir=model_dir, strategy=strategy)
+            model = full_retrain(NEON_DATABASE_URL, model_dir=model_dir, strategy=strategy)
             training_type = "initial"
         else:
             # Decide: online update or full retrain?
             if should_full_retrain(conn, strategy=strategy):
                 print("\nPerforming full retrain (weekly)...")
-                model = full_retrain(conn, model_dir=model_dir, strategy=strategy)
+                model = full_retrain(NEON_DATABASE_URL, model_dir=model_dir, strategy=strategy)
                 training_type = "full_retrain"
             else:
                 print("\nPerforming online learning update...")
@@ -396,7 +401,9 @@ def main():
                     print("No new experiences available. Skipping update.")
                     return
         
-        # Count total experiences
+        # Count total experiences (refresh conn if we just did full_retrain - it may have timed out)
+        conn.close()
+        conn = get_db_connection(NEON_DATABASE_URL)
         cur = conn.cursor()
         cur.execute("SELECT COUNT(*) FROM training_experiences WHERE is_completed = TRUE")
         total_experiences = cur.fetchone()[0]
