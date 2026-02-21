@@ -4,6 +4,11 @@ Runs daily to update the model with new trading experiences using hybrid learnin
 """
 import os
 import sys
+import warnings
+
+# Suppress noisy deprecation warnings from dependencies (gym-anytrading, yfinance)
+warnings.filterwarnings("ignore", message="Gym has been unmaintained")
+warnings.filterwarnings("ignore", message="Timestamp.utcnow is deprecated")
 import argparse
 import json
 import time
