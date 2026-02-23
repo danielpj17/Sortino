@@ -160,6 +160,10 @@ def save_model_version(
     Returns:
         Version number if successful, None otherwise
     """
+    if model is None:
+        print("Error: Cannot save None model.")
+        return None
+    
     if model_dir is None:
         model_dir = os.path.dirname(__file__)
     

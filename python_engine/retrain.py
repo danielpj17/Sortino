@@ -44,6 +44,16 @@ if not NEON_DATABASE_URL:
     print("DATABASE_URL not set. Check .env.")
     sys.exit(1)
 
+# Optional: Use insecure SSL session for yfinance (helps with fc.yahoo.com cert errors on some networks)
+# Set YFINANCE_INSECURE_SSL=1 in .env if you get SSL certificate verification failures
+_yf_session = None
+if os.getenv("YFINANCE_INSECURE_SSL", "").strip().lower() in ("1", "true", "yes"):
+    import urllib3
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    import requests
+    _yf_session = requests.Session()
+    _yf_session.verify = False
+
 # DOW 30 tickers
 DOW_30 = [
     "AXP", "AMGN", "AAPL", "BA", "CAT", "CSCO", "CVX", "GS", "HD", "HON",
@@ -226,7 +236,10 @@ def online_learning_update(model, conn, experiences, reward_fn, timesteps=1000):
     for ticker, ticker_exps in ticker_experiences.items():
         try:
             # Download recent data for this ticker
-            data = yf.download(ticker, period="1mo", interval="1d", progress=False)
+            kwargs = {"period": "1mo", "interval": "1d", "progress": False}
+            if _yf_session is not None:
+                kwargs["session"] = _yf_session
+            data = yf.download(ticker, **kwargs)
             df, err = sanitize_ohlcv(data)
             if err or len(df) < 15:
                 continue
@@ -274,7 +287,10 @@ def full_retrain(db_url, model_dir=None, strategy="sortino"):
         print(f"\n[{i+1}/{len(DOW_30)}] Processing {ticker}...")
         
         try:
-            df = yf.download(ticker, start='2015-01-01', end='2024-01-01', progress=False)
+            kwargs = {"progress": False}
+            if _yf_session is not None:
+                kwargs["session"] = _yf_session
+            df = yf.download(ticker, start='2015-01-01', end='2024-01-01', **kwargs)
             df, err = sanitize_ohlcv(df)
             if err or len(df) < 100:
                 print(f"Skipping {ticker}: insufficient data")
@@ -293,6 +309,12 @@ def full_retrain(db_url, model_dir=None, strategy="sortino"):
         except Exception as e:
             print(f"Error training on {ticker}: {e}")
             continue
+    
+    if model is None:
+        raise RuntimeError(
+            "No model could be trained: all 29 tickers were skipped (insufficient data or download failures). "
+            "Check network/SSL - add YFINANCE_INSECURE_SSL=1 to .env if you get certificate errors."
+        )
     
     # Load and incorporate live experiences (fresh conn - previous one may have timed out during long training)
     conn = get_db_connection(db_url)
@@ -410,6 +432,11 @@ def main():
         conn.close()
         conn = get_db_connection(NEON_DATABASE_URL)
         cur = conn.cursor()
+        
+        if model is None:
+            print("\n✗ No model to save (training failed for all tickers).")
+            sys.exit(1)
+        
         cur.execute("SELECT COUNT(*) FROM training_experiences WHERE is_completed = TRUE")
         total_experiences = cur.fetchone()[0]
         cur.close()
