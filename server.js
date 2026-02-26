@@ -60,7 +60,7 @@ app.get('/api/account-portfolio', wrap(accountPortfolioHandler));
 app.get('/api/dashboard-summary', wrap(dashboardSummaryHandler));
 
 // Catch-all for undefined API endpoints
-app.all('/api/*', (req, res) => {
+app.all('/api/{*path}', (req, res) => {
   res.status(404).json({ error: 'API endpoint not found' });
 });
 
