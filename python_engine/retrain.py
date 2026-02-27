@@ -9,6 +9,7 @@ import warnings
 # Suppress noisy deprecation warnings from dependencies (gym-anytrading, yfinance)
 warnings.filterwarnings("ignore", message="Gym has been unmaintained")
 warnings.filterwarnings("ignore", message="Timestamp.utcnow is deprecated")
+warnings.filterwarnings("ignore", message=".*Timestamp.utcnow is deprecated.*", module=r"yfinance\.scrapers\.history")
 import argparse
 import json
 import time
@@ -62,6 +63,28 @@ DOW_30 = [
 ]
 
 REQUIRED_COLS = ["Open", "High", "Low", "Close", "Volume"]
+
+
+def _download_yf_with_retries(ticker, max_attempts=3, **kwargs):
+    """Download ticker data with retries for transient Yahoo/network errors."""
+    if _yf_session is not None:
+        kwargs["session"] = _yf_session
+    kwargs.setdefault("progress", False)
+    kwargs.setdefault("timeout", 30)
+    kwargs.setdefault("threads", False)
+    last_err = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            data = yf.download(ticker, **kwargs)
+            if data is not None and not data.empty:
+                return data
+        except Exception as e:
+            last_err = e
+        if attempt < max_attempts:
+            time.sleep(2 * attempt)
+    if last_err:
+        print(f"Download failed for {ticker} after {max_attempts} attempts: {last_err}")
+    return pd.DataFrame()
 
 
 def make_gymnasium_wrapper(reward_fn):
@@ -236,10 +259,7 @@ def online_learning_update(model, conn, experiences, reward_fn, timesteps=1000):
     for ticker, ticker_exps in ticker_experiences.items():
         try:
             # Download recent data for this ticker
-            kwargs = {"period": "1mo", "interval": "1d", "progress": False}
-            if _yf_session is not None:
-                kwargs["session"] = _yf_session
-            data = yf.download(ticker, **kwargs)
+            data = _download_yf_with_retries(ticker, period="1mo", interval="1d")
             df, err = sanitize_ohlcv(data)
             if err or len(df) < 15:
                 continue
@@ -287,10 +307,7 @@ def full_retrain(db_url, model_dir=None, strategy="sortino"):
         print(f"\n[{i+1}/{len(DOW_30)}] Processing {ticker}...")
         
         try:
-            kwargs = {"progress": False}
-            if _yf_session is not None:
-                kwargs["session"] = _yf_session
-            df = yf.download(ticker, start='2015-01-01', end='2024-01-01', **kwargs)
+            df = _download_yf_with_retries(ticker, start='2015-01-01', end='2024-01-01')
             df, err = sanitize_ohlcv(df)
             if err or len(df) < 100:
                 print(f"Skipping {ticker}: insufficient data")
@@ -454,12 +471,13 @@ def main():
         )
         
         if version:
-            print(f"\n✓ Retraining complete! Model version {version} saved and activated.")
+            print(f"\n[OK] Retraining complete! Model version {version} saved and activated.")
         else:
-            print("\n✗ Error saving model version")
+            print("\n[ERROR] Error saving model version")
+            sys.exit(1)
             
     except Exception as e:
-        print(f"\n✗ Error during retraining: {e}")
+        print(f"\n[ERROR] Error during retraining: {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)

@@ -175,11 +175,34 @@ def save_model_version(
         cur.execute("SELECT COALESCE(MAX(version_number), 0) + 1 FROM model_versions")
         version_number = cur.fetchone()[0]
         
-        # Deactivate only same-strategy previous versions
-        try:
+        # Detect whether strategy column exists and whether old global unique index is present.
+        cur.execute("""
+            SELECT EXISTS (
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = 'model_versions'
+                  AND column_name = 'strategy'
+            )
+        """)
+        has_strategy_col = cur.fetchone()[0]
+        cur.execute("""
+            SELECT EXISTS (
+                SELECT 1
+                FROM pg_indexes
+                WHERE schemaname = 'public'
+                  AND indexname = 'idx_model_versions_active_unique'
+            )
+        """)
+        has_global_active_unique = cur.fetchone()[0]
+
+        # Deactivate previous active rows.
+        # If old global unique index exists, deactivate all to avoid uniqueness conflicts.
+        if has_global_active_unique:
+            cur.execute("UPDATE model_versions SET is_active = FALSE")
+        elif has_strategy_col:
             cur.execute("UPDATE model_versions SET is_active = FALSE WHERE strategy = %s", (strategy,))
-        except psycopg2.Error:
-            # strategy column may not exist yet; fall back to deactivating all
+        else:
             cur.execute("UPDATE model_versions SET is_active = FALSE")
         
         # Generate model filename (strategy-specific)
@@ -193,8 +216,8 @@ def save_model_version(
         # Calculate performance metrics
         metrics = get_model_performance(database_url, version_number - 1)  # Use previous version's trades
         
-        # Insert new version record (include strategy if column exists)
-        try:
+        # Insert new version record (with strategy only when the column exists)
+        if has_strategy_col:
             cur.execute("""
                 INSERT INTO model_versions 
                 (version_number, model_path, training_type, total_experiences, 
@@ -213,8 +236,7 @@ def save_model_version(
                 notes,
                 strategy
             ))
-        except psycopg2.Error:
-            # strategy column may not exist; insert without it
+        else:
             cur.execute("""
                 INSERT INTO model_versions 
                 (version_number, model_path, training_type, total_experiences, 
