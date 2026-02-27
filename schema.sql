@@ -95,9 +95,11 @@ ALTER TABLE model_versions ADD COLUMN IF NOT EXISTS strategy TEXT DEFAULT 'sorti
 CREATE INDEX IF NOT EXISTS idx_model_versions_strategy ON model_versions(strategy);
 
 -- Indexes for model_versions
-CREATE INDEX idx_model_versions_active ON model_versions(is_active);
-CREATE INDEX idx_model_versions_created_at ON model_versions(created_at DESC);
-CREATE UNIQUE INDEX idx_model_versions_active_unique ON model_versions(is_active) WHERE is_active = TRUE;
+CREATE INDEX IF NOT EXISTS idx_model_versions_active ON model_versions(is_active);
+CREATE INDEX IF NOT EXISTS idx_model_versions_created_at ON model_versions(created_at DESC);
+DROP INDEX IF EXISTS idx_model_versions_active_unique;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_model_versions_active_per_strategy
+  ON model_versions(strategy) WHERE is_active = TRUE;
 
 -- Bot state table: tracks which accounts have active trading bots (Heartbeat architecture)
 -- account_id matches accounts.id type (TEXT)
