@@ -25,6 +25,7 @@ const BotTile: React.FC<BotTileProps> = ({ accountId, onStartBot, onStopBot, onV
     bot_name: 'ALPHA-01',
     account_type_display: 'CASH',
     strategy_name: "Sortino Model",
+    cash_mode: 'SETTLED' as 'SETTLED' | 'TOTAL',
     api_status: 'CONNECTED',
     api_error: null as string | null
   });
@@ -113,17 +114,26 @@ const BotTile: React.FC<BotTileProps> = ({ accountId, onStartBot, onStopBot, onV
           <span className="text-xs font-bold text-zinc-500 uppercase tracking-widest">ACCOUNT</span>
           <span className="text-sm font-bold text-zinc-200">{botStatus.account_name}</span>
         </div>
-        
+
         <div className="flex items-center justify-between">
-          <span className="text-xs font-bold text-zinc-500 uppercase tracking-widest">TYPE</span>
+          <span className="text-xs font-bold text-zinc-500 uppercase tracking-widest">STRATEGY</span>
+          <span className="text-sm font-bold text-zinc-300">{botStatus.strategy_name}</span>
+        </div>
+
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-bold text-zinc-500 uppercase tracking-widest">CAPITAL</span>
           <span className="text-sm font-bold text-emerald-400">{botStatus.account_type_display}</span>
         </div>
-        
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-bold text-zinc-500 uppercase tracking-widest">ACTIVE BOT</span>
-          <span className="text-sm font-bold text-[#86c7f3]">{botStatus.bot_name}</span>
-        </div>
-        
+
+        {botStatus.account_type_display === 'CASH' && (
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-zinc-500 uppercase tracking-widest">FUNDS</span>
+            <span className="text-sm font-bold text-zinc-300">
+              {botStatus.cash_mode === 'SETTLED' ? 'Settled' : 'All'}
+            </span>
+          </div>
+        )}
+
         <div className="flex items-center justify-between">
           <span className="text-xs font-bold text-zinc-500 uppercase tracking-widest">API</span>
           <div className="flex flex-col items-end">
@@ -137,10 +147,10 @@ const BotTile: React.FC<BotTileProps> = ({ accountId, onStartBot, onStopBot, onV
             )}
           </div>
         </div>
-        
+
         <div className="flex items-center justify-between">
-          <span className="text-xs font-bold text-zinc-500 uppercase tracking-widest">STRATEGY</span>
-          <span className="text-sm font-bold text-zinc-300">{botStatus.strategy_name}</span>
+          <span className="text-xs font-bold text-zinc-500 uppercase tracking-widest">ACTIVE BOT</span>
+          <span className="text-sm font-bold text-[#86c7f3]">{botStatus.bot_name}</span>
         </div>
       </div>
 

@@ -151,7 +151,7 @@ const ConfigureAgentModal: React.FC<ConfigureAgentModalProps> = ({
                   key={opt}
                   type="button"
                   onClick={() => setStrategyName(opt)}
-                  className={`flex-1 py-3 px-4 rounded-xl text-sm font-bold transition-colors ${
+                  className={`flex-1 min-w-0 py-3 px-4 rounded-xl text-sm font-bold transition-colors ${
                     strategyName === opt
                       ? 'bg-[#86c7f3] text-white border border-[#86c7f3]'
                       : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 border border-zinc-700'
@@ -175,7 +175,7 @@ const ConfigureAgentModal: React.FC<ConfigureAgentModalProps> = ({
                   setCapitalType('CASH');
                   setAllowShorting(false);
                 }}
-                className={`flex-1 py-3 px-4 rounded-xl text-sm font-bold transition-colors ${
+                className={`flex-1 min-w-0 py-3 px-4 rounded-xl text-sm font-bold transition-colors ${
                   capitalType === 'CASH'
                     ? 'bg-emerald-500 text-white'
                     : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
@@ -186,7 +186,7 @@ const ConfigureAgentModal: React.FC<ConfigureAgentModalProps> = ({
               <button
                 type="button"
                 onClick={() => setCapitalType('MARGIN')}
-                className={`flex-1 py-3 px-4 rounded-xl text-sm font-bold transition-colors ${
+                className={`flex-1 min-w-0 py-3 px-4 rounded-xl text-sm font-bold transition-colors ${
                   capitalType === 'MARGIN'
                     ? 'bg-emerald-500 text-white'
                     : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
@@ -198,15 +198,15 @@ const ConfigureAgentModal: React.FC<ConfigureAgentModalProps> = ({
 
             {/* Cash Settlement Mode (only when Cash is selected) */}
             {capitalType === 'CASH' && (
-              <div className="space-y-2 pt-2">
-                <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block">
+              <div className="space-y-3 pt-2">
+                <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest block">
                   CASH SETTLEMENT
                 </label>
                 <div className="flex gap-3">
                   <button
                     type="button"
                     onClick={() => setCashMode('SETTLED')}
-                    className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition-colors ${
+                    className={`flex-1 min-w-0 py-3 px-4 rounded-xl text-sm font-bold transition-colors ${
                       cashMode === 'SETTLED'
                         ? 'bg-emerald-500 text-white'
                         : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
@@ -217,7 +217,7 @@ const ConfigureAgentModal: React.FC<ConfigureAgentModalProps> = ({
                   <button
                     type="button"
                     onClick={() => setCashMode('TOTAL')}
-                    className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition-colors ${
+                    className={`flex-1 min-w-0 py-3 px-4 rounded-xl text-sm font-bold transition-colors ${
                       cashMode === 'TOTAL'
                         ? 'bg-emerald-500 text-white'
                         : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
