@@ -60,6 +60,22 @@ async function fetchAllFills(baseUrl, headers) {
   return fills.sort((a, b) => new Date(a.transaction_time || 0).getTime() - new Date(b.transaction_time || 0).getTime());
 }
 
+function computeUnsettledProceeds(fills) {
+  if (!fills || fills.length === 0) return 0;
+  const todayET = toEasternDateKey(new Date());
+  let unsettled = 0;
+  for (const f of fills) {
+    if ((f.side || '').toLowerCase() !== 'sell') continue;
+    const fillDate = toEasternDateKey(f.transaction_time || f.trade_time || f.created_at);
+    if (fillDate === todayET) {
+      const qty = parseInt(f.qty || f.cum_qty || 0, 10);
+      const price = parseFloat(f.price || 0);
+      unsettled += qty * price;
+    }
+  }
+  return unsettled;
+}
+
 function matchFillsToCompletedTrades(fills) {
   const completed = [];
   const buyQueue = {};
@@ -258,7 +274,24 @@ export default async function handler(req, res) {
     const isCashAccount = acc.account_type_display === 'CASH';
 
     if (isCashAccount) {
-      buying_power = cashMode === 'SETTLED' ? buying_power : cash;
+      if (cashMode === 'SETTLED') {
+        let fillsForSettlement = allFills;
+        if (!fillsForSettlement || fillsForSettlement.length === 0) {
+          try {
+            const todayET = toEasternDateKey(new Date());
+            fillsForSettlement = await alpacaFetch(baseUrl, '/v2/account/activities/FILL', {
+              queryParams: { date: todayET, direction: 'desc', page_size: 100 },
+            }, headers);
+            if (!Array.isArray(fillsForSettlement)) fillsForSettlement = [];
+          } catch {
+            fillsForSettlement = [];
+          }
+        }
+        const unsettled = computeUnsettledProceeds(fillsForSettlement);
+        buying_power = Math.max(0, cash - unsettled);
+      } else {
+        buying_power = cash;
+      }
     }
 
     const positions = Array.isArray(positionsData)

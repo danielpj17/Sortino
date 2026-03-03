@@ -83,6 +83,40 @@ function isMarketOpen() {
   return true;
 }
 
+function toEasternDateKey(d) {
+  return new Date(d).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+}
+
+async function fetchTodaySellFills(apiKey, secretKey, baseUrl) {
+  const headers = { 'APCA-API-KEY-ID': apiKey, 'APCA-API-SECRET-KEY': secretKey };
+  const todayET = toEasternDateKey(new Date());
+  try {
+    const fills = await alpacaFetch(baseUrl, '/v2/account/activities/FILL', {
+      queryParams: { date: todayET, direction: 'desc', page_size: 100 },
+    }, headers);
+    if (!Array.isArray(fills)) return [];
+    return fills;
+  } catch {
+    return [];
+  }
+}
+
+function computeUnsettledProceeds(fills) {
+  if (!fills || fills.length === 0) return 0;
+  const todayET = toEasternDateKey(new Date());
+  let unsettled = 0;
+  for (const f of fills) {
+    if ((f.side || '').toLowerCase() !== 'sell') continue;
+    const fillDate = toEasternDateKey(f.transaction_time || f.trade_time || f.created_at);
+    if (fillDate === todayET) {
+      const qty = parseInt(f.qty || f.cum_qty || 0, 10);
+      const price = parseFloat(f.price || 0);
+      unsettled += qty * price;
+    }
+  }
+  return unsettled;
+}
+
 /**
  * Apply decision layer smoothing using rolling window averages and hysteresis thresholds.
  * Rolling windows are keyed by ticker+strategyKey so different strategies don't mix predictions.
@@ -366,7 +400,9 @@ export async function executeTradingLoop(accountId) {
   if (!isCashAccount) {
     effectiveBuyingPower = buyingPower;
   } else if (cashMode === 'SETTLED') {
-    effectiveBuyingPower = buyingPower;
+    const todayFills = await fetchTodaySellFills(acc.api_key, acc.secret_key, baseUrl);
+    const unsettled = computeUnsettledProceeds(todayFills);
+    effectiveBuyingPower = Math.max(0, cash - unsettled);
   } else {
     effectiveBuyingPower = cash;
   }

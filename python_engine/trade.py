@@ -8,6 +8,7 @@ import os
 import sys
 import time
 import json
+from datetime import datetime, timezone
 import psycopg2
 import alpaca_trade_api as tradeapi
 import yfinance as yf
@@ -18,7 +19,7 @@ from stable_baselines3.common.vec_env import DummyVecEnv
 from gym_anytrading.envs import StocksEnv
 import gymnasium as gym
 from dotenv import load_dotenv
-from model_manager import get_latest_model, _sortino_reward
+from model_manager import get_latest_model
 
 # Load env from project root and python_engine
 _load_dirs = [
@@ -110,8 +111,7 @@ def fetch_accounts(conn):
         response = requests.get(f"{api_url}/api/accounts?decrypt=true", timeout=5)
         if response.status_code == 200:
             accounts = response.json()
-            # Convert to tuple format expected by the rest of the code
-            # Format: (id, api_key, secret_key, type, allow_shorting, max_position_size)
+            # Format: (id, api_key, secret_key, type, allow_shorting, max_position_size, account_type_display, cash_mode)
             rows = []
             for acc in accounts:
                 rows.append((
@@ -120,7 +120,9 @@ def fetch_accounts(conn):
                     acc['secret_key'],
                     acc['type'],
                     acc.get('allow_shorting', False),
-                    float(acc.get('max_position_size', 0.40))
+                    float(acc.get('max_position_size', 0.40)),
+                    acc.get('account_type_display', 'CASH'),
+                    acc.get('cash_mode', 'SETTLED'),
                 ))
             return rows
         else:
@@ -134,7 +136,9 @@ def fetch_accounts(conn):
     cur.execute("""
         SELECT id, api_key, secret_key, type,
                COALESCE(allow_shorting, FALSE) AS allow_shorting,
-               COALESCE(CAST(max_position_size AS FLOAT), 0.40) AS max_position_size
+               COALESCE(CAST(max_position_size AS FLOAT), 0.40) AS max_position_size,
+               COALESCE(account_type_display, 'CASH') AS account_type_display,
+               COALESCE(cash_mode, 'SETTLED') AS cash_mode
         FROM accounts
     """)
     rows = cur.fetchall()
@@ -173,101 +177,6 @@ def _get_company_name(ticker):
         return info.get('longName') or info.get('shortName') or ticker
     except Exception:
         return ticker
-
-
-def collect_experience(conn, ticker, account_id, observation, action, trade_id=None):
-    """
-    Store a training experience (observation + action) in the database.
-    
-    Args:
-        conn: Database connection
-        ticker: Stock ticker symbol
-        account_id: Account ID
-        observation: Market observation (numpy array or list)
-        action: Action taken (0 = SELL/HOLD, 1 = BUY)
-        trade_id: Trade ID if trade was executed, None otherwise
-    
-    Returns:
-        Experience ID
-    """
-    try:
-        # Convert observation to JSON-serializable format
-        if isinstance(observation, np.ndarray):
-            obs_data = observation.tolist()
-        else:
-            obs_data = list(observation) if hasattr(observation, '__iter__') else [observation]
-        
-        cur = conn.cursor()
-        cur.execute("""
-            INSERT INTO training_experiences 
-            (ticker, account_id, observation, action, trade_id, is_completed)
-            VALUES (%s, %s, %s, %s, %s, %s)
-            RETURNING id
-        """, (
-            ticker,
-            account_id,
-            json.dumps(obs_data),
-            int(action),
-            trade_id,
-            trade_id is not None  # Mark as completed if trade was executed
-        ))
-        experience_id = cur.fetchone()[0]
-        conn.commit()
-        cur.close()
-        return experience_id
-    except Exception as e:
-        debug_log("collect_experience", str(e), {"ticker": ticker, "account_id": account_id})
-        conn.rollback()
-        return None
-
-
-def update_experience_reward(conn, experience_id, reward, is_completed=True):
-    """
-    Update experience with calculated reward after trade completion.
-    
-    Args:
-        conn: Database connection
-        experience_id: Experience ID to update
-        reward: Calculated reward (with Sortino penalty applied)
-        is_completed: Whether the trade is completed
-    """
-    try:
-        cur = conn.cursor()
-        cur.execute("""
-            UPDATE training_experiences
-            SET reward = %s, is_completed = %s
-            WHERE id = %s
-        """, (float(reward), is_completed, experience_id))
-        conn.commit()
-        cur.close()
-    except Exception as e:
-        debug_log("update_experience_reward", str(e), {"experience_id": experience_id})
-        conn.rollback()
-
-
-def calculate_trade_reward(buy_price, sell_price, quantity):
-    """
-    Calculate reward from completed trade with Sortino penalty.
-    
-    Args:
-        buy_price: Entry price
-        sell_price: Exit price
-        quantity: Number of shares
-    
-    Returns:
-        Reward value (with Sortino penalty applied to negative returns)
-    """
-    if buy_price <= 0 or quantity <= 0:
-        return 0.0
-    
-    # Calculate return percentage
-    return_pct = (sell_price - buy_price) / buy_price
-    
-    # Apply Sortino penalty
-    reward = _sortino_reward(return_pct)
-    
-    # Scale by quantity (normalize to per-share basis for training)
-    return reward
 
 
 def run_analysis_cycle(model, conn, accounts):
@@ -313,27 +222,38 @@ def run_analysis_cycle(model, conn, accounts):
             # Execute per account
             cur = conn.cursor()
             for acc in accounts:
-                acc_id, api_key, secret_key, acc_type, allow_shorting, max_pos = acc
-                
-                acc_id, api_key, secret_key, acc_type, allow_shorting, max_pos = acc
-                
-                # Collect experience BEFORE executing trade
-                experience_id = collect_experience(
-                    conn, ticker, acc_id, obs, action[0], trade_id=None
-                )
+                acc_id, api_key, secret_key, acc_type, allow_shorting, max_pos, acct_type_display, cash_mode = acc
                 
                 base_url = "https://paper-api.alpaca.markets" if str(acc_type).lower() == "paper" else "https://api.alpaca.markets"
                 try:
                     api = tradeapi.REST(api_key, secret_key, base_url, api_version="v2")
                     acct = api.get_account()
-                    buying_power = float(acct.buying_power)
+                    raw_buying_power = float(acct.buying_power)
+                    account_cash = float(acct.cash)
                     portfolio_value = float(acct.portfolio_value)
                 except Exception as e:
                     print(f"    [{acc_id}] Alpaca error: {e}")
                     continue
 
+                is_cash_account = acct_type_display != 'MARGIN'
+                if not is_cash_account:
+                    effective_buying_power = raw_buying_power
+                elif cash_mode == 'SETTLED':
+                    unsettled = 0.0
+                    try:
+                        today_et = datetime.now(timezone.utc).astimezone().strftime('%Y-%m-%d')
+                        activities = api.get_activities(activity_types='FILL', date=today_et)
+                        for act in (activities or []):
+                            if getattr(act, 'side', '').lower() == 'sell':
+                                unsettled += abs(float(getattr(act, 'qty', 0))) * float(getattr(act, 'price', 0))
+                    except Exception:
+                        pass
+                    effective_buying_power = max(0.0, account_cash - unsettled)
+                else:
+                    effective_buying_power = account_cash
+
                 max_trade_value = portfolio_value * max_pos
-                trade_value = min(max_trade_value, buying_power)
+                trade_value = min(max_trade_value, effective_buying_power)
                 qty = max(0, int(trade_value / current_price))
                 if qty <= 0:
                     print(f"    [{acc_id}] Skipping {ticker}: no size (value={trade_value:.0f})")
@@ -347,15 +267,13 @@ def run_analysis_cycle(model, conn, accounts):
                         if side == "short":
                             close_qty = abs(int(float(pos.qty)))
                             api.submit_order(symbol=ticker, qty=close_qty, side="buy", type="market", time_in_force="gtc")
-                            # Get company name
                             company_name = _get_company_name(ticker)
                             cur.execute(
-                                "INSERT INTO trades (timestamp, ticker, action, price, quantity, strategy, pnl, account_id, company_name, experience_id) VALUES (NOW(), %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
-                                (ticker, "BUY", current_price, close_qty, STRATEGY_NAME, 0.0, acc_id, company_name, experience_id),
+                                "INSERT INTO trades (timestamp, ticker, action, price, quantity, strategy, pnl, account_id, company_name) VALUES (NOW(), %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+                                (ticker, "BUY", current_price, close_qty, STRATEGY_NAME, 0.0, acc_id, company_name),
                             )
                             trade_id = cur.fetchone()[0]
                             
-                            # Find matching BUY trade for this short position to calculate PNL
                             cur.execute("""
                                 SELECT id, price, quantity 
                                 FROM trades 
@@ -366,24 +284,11 @@ def run_analysis_cycle(model, conn, accounts):
                             buy_trade_row = cur.fetchone()
                             
                             if buy_trade_row:
-                                sell_trade_id, sell_price, sell_qty = buy_trade_row  # This is the SELL (short entry) trade
-                                # Calculate PNL for short: (entry_price - exit_price) * quantity
+                                sell_trade_id, sell_price, sell_qty = buy_trade_row
                                 pnl = (sell_price - current_price) * min(close_qty, sell_qty)
-                                # Update SELL trade with PNL and link
                                 cur.execute("""
                                     UPDATE trades SET pnl = %s, sell_trade_id = %s WHERE id = %s
                                 """, (pnl, trade_id, sell_trade_id))
-                                # Calculate reward: for shorts, return = (entry - exit) / entry
-                                # But calculate_trade_reward expects (buy, sell), so we swap and negate
-                                return_pct = (sell_price - current_price) / sell_price
-                                reward = _sortino_reward(return_pct)
-                                # Find experience for the original SELL (short) trade
-                                cur.execute("""
-                                    SELECT experience_id FROM trades WHERE id = %s
-                                """, (sell_trade_id,))
-                                sell_exp_row = cur.fetchone()
-                                if sell_exp_row and sell_exp_row[0]:
-                                    update_experience_reward(conn, sell_exp_row[0], reward, True)
                             
                             conn.commit()
                             print(f"    [{acc_id}] Covered short {ticker} x {close_qty}")
@@ -391,20 +296,11 @@ def run_analysis_cycle(model, conn, accounts):
                             print(f"    [{acc_id}] Already long {ticker}, skip")
                     else:
                         api.submit_order(symbol=ticker, qty=qty, side="buy", type="market", time_in_force="gtc")
-                        # Get company name
                         company_name = _get_company_name(ticker)
                         cur.execute(
-                            "INSERT INTO trades (timestamp, ticker, action, price, quantity, strategy, pnl, account_id, company_name, experience_id) VALUES (NOW(), %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
-                            (ticker, "BUY", current_price, qty, STRATEGY_NAME, 0.0, acc_id, company_name, experience_id),
+                            "INSERT INTO trades (timestamp, ticker, action, price, quantity, strategy, pnl, account_id, company_name) VALUES (NOW(), %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+                            (ticker, "BUY", current_price, qty, STRATEGY_NAME, 0.0, acc_id, company_name),
                         )
-                        trade_id = cur.fetchone()[0]
-                        # Update experience with trade_id
-                        if experience_id:
-                            cur.execute("""
-                                UPDATE training_experiences 
-                                SET trade_id = %s 
-                                WHERE id = %s
-                            """, (trade_id, experience_id))
                         conn.commit()
                         print(f"    [{acc_id}] BUY {ticker} x {qty}")
 
@@ -415,17 +311,15 @@ def run_analysis_cycle(model, conn, accounts):
                         if side == "long":
                             close_qty = int(float(pos.qty))
                             api.submit_order(symbol=ticker, qty=close_qty, side="sell", type="market", time_in_force="gtc")
-                            # Get company name
                             company_name = _get_company_name(ticker)
                             cur.execute(
-                                "INSERT INTO trades (timestamp, ticker, action, price, quantity, strategy, pnl, account_id, company_name, experience_id) VALUES (NOW(), %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
-                                (ticker, "SELL", current_price, close_qty, STRATEGY_NAME, 0.0, acc_id, company_name, experience_id),
+                                "INSERT INTO trades (timestamp, ticker, action, price, quantity, strategy, pnl, account_id, company_name) VALUES (NOW(), %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+                                (ticker, "SELL", current_price, close_qty, STRATEGY_NAME, 0.0, acc_id, company_name),
                             )
                             sell_trade_id = cur.fetchone()[0]
                             
-                            # Find matching BUY trade to calculate PNL
                             cur.execute("""
-                                SELECT id, price, quantity, experience_id
+                                SELECT id, price, quantity
                                 FROM trades 
                                 WHERE ticker = %s AND action = 'BUY' AND account_id = %s 
                                 AND sell_trade_id IS NULL
@@ -434,17 +328,11 @@ def run_analysis_cycle(model, conn, accounts):
                             buy_trade_row = cur.fetchone()
                             
                             if buy_trade_row:
-                                buy_trade_id, buy_price, buy_qty, buy_experience_id = buy_trade_row
-                                # Calculate PNL
+                                buy_trade_id, buy_price, buy_qty = buy_trade_row
                                 pnl = (current_price - buy_price) * min(close_qty, buy_qty)
-                                # Update SELL trade with PNL and link
                                 cur.execute("""
                                     UPDATE trades SET pnl = %s, sell_trade_id = %s WHERE id = %s
                                 """, (pnl, sell_trade_id, buy_trade_id))
-                                # Calculate reward and update experience
-                                reward = calculate_trade_reward(buy_price, current_price, min(close_qty, buy_qty))
-                                if buy_experience_id:
-                                    update_experience_reward(conn, buy_experience_id, reward, True)
                             
                             conn.commit()
                             print(f"    [{acc_id}] Closed long {ticker} x {close_qty}")
@@ -453,24 +341,14 @@ def run_analysis_cycle(model, conn, accounts):
                     else:
                         if allow_shorting:
                             api.submit_order(symbol=ticker, qty=qty, side="sell", type="market", time_in_force="gtc")
-                            # Get company name
                             company_name = _get_company_name(ticker)
                             cur.execute(
-                                "INSERT INTO trades (timestamp, ticker, action, price, quantity, strategy, pnl, account_id, company_name, experience_id) VALUES (NOW(), %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
-                                (ticker, "SELL", current_price, qty, STRATEGY_NAME, 0.0, acc_id, company_name, experience_id),
+                                "INSERT INTO trades (timestamp, ticker, action, price, quantity, strategy, pnl, account_id, company_name) VALUES (NOW(), %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+                                (ticker, "SELL", current_price, qty, STRATEGY_NAME, 0.0, acc_id, company_name),
                             )
-                            trade_id = cur.fetchone()[0]
-                            # Update experience with trade_id
-                            if experience_id:
-                                cur.execute("""
-                                    UPDATE training_experiences 
-                                    SET trade_id = %s 
-                                    WHERE id = %s
-                                """, (trade_id, experience_id))
                             conn.commit()
                             print(f"    [{acc_id}] SHORT {ticker} x {qty}")
                         else:
-                            # No trade executed, but still record experience for learning
                             print(f"    [{acc_id}] SELL signal but no position; shorting disabled, stay cash")
 
             cur.close()
@@ -492,7 +370,7 @@ def get_clock_from_first_account(accounts):
     if not accounts:
         return None
     acc = accounts[0]
-    _, api_key, secret_key, acc_type, _, _ = acc
+    _, api_key, secret_key, acc_type = acc[0], acc[1], acc[2], acc[3]
     base_url = "https://paper-api.alpaca.markets" if str(acc_type).lower() == "paper" else "https://api.alpaca.markets"
     try:
         api = tradeapi.REST(api_key, secret_key, base_url, api_version="v2")

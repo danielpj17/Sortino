@@ -77,6 +77,7 @@ const PaperTrading: React.FC = () => {
     portfolio_value: number;
     buying_power: number;
     cash: number;
+    cash_mode?: string | null;
     positions?: Array<{ symbol: string; qty: number; side: string; market_value: number; unrealized_pl: number; avg_entry_price: number; current_price: number }>;
     completedTrades?: Array<{ symbol: string; qty: number; buyPrice: number; sellPrice: number; buyTime: string; sellTime: string; pnl: number }>;
     activities?: Array<{ symbol?: string; symbol_id?: string; side?: string; transaction_time?: string; trade_time?: string; created_at?: string }>;
@@ -159,6 +160,7 @@ const PaperTrading: React.FC = () => {
             portfolio_value: data.portfolio_value ?? 0,
             buying_power: data.buying_power ?? 0,
             cash: data.cash ?? 0,
+            cash_mode: data.cash_mode ?? null,
             positions: data.positions ?? [],
             completedTrades: data.completedTrades ?? [],
             activities: data.activities ?? [],
