@@ -360,7 +360,16 @@ export async function executeTradingLoop(accountId) {
   const portfolioValue = parseFloat(account.portfolio_value) || 0;
   const maxTradeValue = portfolioValue * (acc.max_position_size || 0.4);
   const isCashAccount = acc.account_type_display !== 'MARGIN';
-  const effectiveBuyingPower = isCashAccount ? cash : buyingPower;
+  const cashMode = acc.cash_mode || 'SETTLED';
+
+  let effectiveBuyingPower;
+  if (!isCashAccount) {
+    effectiveBuyingPower = buyingPower;
+  } else if (cashMode === 'SETTLED') {
+    effectiveBuyingPower = buyingPower;
+  } else {
+    effectiveBuyingPower = cash;
+  }
   const tradeValue = Math.min(maxTradeValue, effectiveBuyingPower);
   const allowShorting = !!acc.allow_shorting;
   const strategyName = acc.strategy_name || "Sortino Model";

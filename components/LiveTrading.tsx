@@ -486,6 +486,7 @@ const LiveTrading: React.FC = () => {
           percentChange={percentChange}
           todayGainDollars={portfolioData?.todayGainDollars}
           todayGainPercent={portfolioData?.todayGainPercent}
+          cashLabel={portfolioData?.cash_mode === 'SETTLED' ? 'Settled Cash' : 'Cash'}
         />
         <div className="h-full min-w-0">
           <BotTile

@@ -254,8 +254,11 @@ export default async function handler(req, res) {
     const portfolio_value = parseFloat(accountData.portfolio_value) || 0;
     let buying_power = parseFloat(accountData.buying_power) || 0;
     const cash = parseFloat(accountData.cash) || 0;
-    if (acc.account_type_display === 'CASH') {
-      buying_power = cash;
+    const cashMode = acc.cash_mode || 'SETTLED';
+    const isCashAccount = acc.account_type_display === 'CASH';
+
+    if (isCashAccount) {
+      buying_power = cashMode === 'SETTLED' ? buying_power : cash;
     }
 
     const positions = Array.isArray(positionsData)
@@ -308,6 +311,7 @@ export default async function handler(req, res) {
       portfolio_value,
       buying_power,
       cash,
+      cash_mode: isCashAccount ? cashMode : null,
       positions,
       todayGainDollars,
       todayGainPercent,

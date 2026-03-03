@@ -31,7 +31,7 @@ export default async function handler(req, res) {
         }
       }
 
-      const { account_id, strategy_name, account_type_display, allow_shorting } = body;
+      const { account_id, strategy_name, account_type_display, allow_shorting, cash_mode } = body;
 
       if (!account_id) {
         return res.status(400).json({ error: 'account_id is required' });
@@ -45,7 +45,8 @@ export default async function handler(req, res) {
         UPDATE accounts 
         SET strategy_name = $1,
             account_type_display = $2,
-            allow_shorting = $3
+            allow_shorting = $3,
+            cash_mode = $5
         WHERE id = $4
       `;
       
@@ -54,7 +55,8 @@ export default async function handler(req, res) {
           strategy_name || "Sortino Model",
           account_type_display || 'CASH',
           allow_shorting || false,
-          account_id
+          account_id,
+          cash_mode || 'SETTLED'
         ]);
       } catch (updateErr) {
         // If columns don't exist, return error suggesting migration
@@ -76,6 +78,7 @@ export default async function handler(req, res) {
           COALESCE(account_type_display, 'CASH') as account_type_display,
           COALESCE(strategy_name, 'Sortino Model') as strategy_name,
           COALESCE(allow_shorting, FALSE) as allow_shorting,
+          COALESCE(cash_mode, 'SETTLED') as cash_mode,
           api_key,
           secret_key,
           type
@@ -97,6 +100,7 @@ export default async function handler(req, res) {
         account.account_type_display = account_type_display || 'CASH';
         account.strategy_name = strategy_name || "Sortino Model";
         account.allow_shorting = allow_shorting || false;
+        account.cash_mode = cash_mode || 'SETTLED';
       }
 
       // Check API status for POST as well
@@ -160,6 +164,7 @@ export default async function handler(req, res) {
         account_type_display: account.account_type_display,
         strategy_name: account.strategy_name,
         allow_shorting: account.allow_shorting,
+        cash_mode: account.cash_mode,
         api_status: apiStatus,
         api_error: apiError || null
       });
@@ -193,6 +198,7 @@ export default async function handler(req, res) {
         COALESCE(account_type_display, 'CASH') as account_type_display,
         COALESCE(strategy_name, 'Sortino Model') as strategy_name,
         COALESCE(allow_shorting, FALSE) as allow_shorting,
+        COALESCE(cash_mode, 'SETTLED') as cash_mode,
         api_key,
         secret_key,
         type
@@ -239,6 +245,7 @@ export default async function handler(req, res) {
           account_type_display: 'CASH',
           strategy_name: "Sortino Model",
           allow_shorting: false,
+          cash_mode: 'SETTLED',
           api_status: 'DISCONNECTED',
           error: `Account with ID "${account_id}" not found in database. Please add it in Settings.`
         });
@@ -250,6 +257,7 @@ export default async function handler(req, res) {
         account_type_display: 'CASH',
         strategy_name: "Sortino Model",
         allow_shorting: false,
+        cash_mode: 'SETTLED',
         api_status: 'DISCONNECTED'
       });
     }
@@ -261,6 +269,7 @@ export default async function handler(req, res) {
     const account_type_display = account.account_type_display !== undefined ? account.account_type_display : 'CASH';
     const strategy_name = account.strategy_name !== undefined ? account.strategy_name : "Sortino Model";
     const allow_shorting = account.allow_shorting !== undefined ? account.allow_shorting : false;
+    const cash_mode = account.cash_mode !== undefined ? account.cash_mode : 'SETTLED';
     
     // Check API status by attempting to connect to Alpaca
     let apiStatus = 'CONNECTED';
@@ -325,6 +334,7 @@ export default async function handler(req, res) {
       account_type_display: account_type_display,
       strategy_name: strategy_name,
       allow_shorting: allow_shorting,
+      cash_mode: cash_mode,
       api_status: apiStatus,
       api_error: apiError || null
     });

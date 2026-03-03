@@ -17,6 +17,8 @@ interface MetricsProps {
   todayGainPercent?: number;
   /** When true, renders 4 MetricCards without a wrapper (for use in parent grid). */
   asFragment?: boolean;
+  /** Label for the cash sub-value (e.g. "Cash" or "Settled Cash"). Defaults to "Cash". */
+  cashLabel?: string;
 }
 
 const MetricsGrid: React.FC<MetricsProps> = ({ 
@@ -32,6 +34,7 @@ const MetricsGrid: React.FC<MetricsProps> = ({
   todayGainDollars,
   todayGainPercent,
   asFragment = false,
+  cashLabel = 'Cash',
 }) => {
   const useTodayGain = todayGainDollars !== undefined && todayGainPercent !== undefined;
   const equitySubValue = useTodayGain ? (
@@ -58,7 +61,7 @@ const MetricsGrid: React.FC<MetricsProps> = ({
       <MetricCard 
         title="Position / Cash" 
         value={`$${positionValue.toLocaleString()}`} 
-        subValue={`Cash: $${availableCash.toLocaleString()}`}
+        subValue={`${cashLabel}: $${availableCash.toLocaleString()}`}
         icon={<Landmark size={18} />} 
         color="sky"
       />

@@ -17,6 +17,7 @@ const ConfigureAgentModal: React.FC<ConfigureAgentModalProps> = ({
   const STRATEGY_OPTIONS = ["Sortino Model", "Upside Model"] as const;
   const [strategyName, setStrategyName] = useState<string>("Sortino Model");
   const [capitalType, setCapitalType] = useState<'CASH' | 'MARGIN'>('CASH');
+  const [cashMode, setCashMode] = useState<'SETTLED' | 'TOTAL'>('SETTLED');
   const [allowShorting, setAllowShorting] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -33,6 +34,7 @@ const ConfigureAgentModal: React.FC<ConfigureAgentModalProps> = ({
             const data = await res.json();
             setStrategyName(data.strategy_name || "Sortino Model");
             setCapitalType(data.account_type_display === 'MARGIN' ? 'MARGIN' : 'CASH');
+            setCashMode(data.cash_mode === 'TOTAL' ? 'TOTAL' : 'SETTLED');
             setAllowShorting(data.allow_shorting || false);
           }
         } catch (err) {
@@ -94,7 +96,8 @@ const ConfigureAgentModal: React.FC<ConfigureAgentModalProps> = ({
           account_id: targetAccountId,
           strategy_name: strategyName,
           account_type_display: capitalType,
-          allow_shorting: capitalType === 'MARGIN' ? allowShorting : false
+          allow_shorting: capitalType === 'MARGIN' ? allowShorting : false,
+          cash_mode: capitalType === 'CASH' ? cashMode : 'TOTAL'
         })
       });
 
@@ -192,6 +195,44 @@ const ConfigureAgentModal: React.FC<ConfigureAgentModalProps> = ({
                 Margin
               </button>
             </div>
+
+            {/* Cash Settlement Mode (only when Cash is selected) */}
+            {capitalType === 'CASH' && (
+              <div className="space-y-2 pt-2">
+                <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block">
+                  CASH SETTLEMENT
+                </label>
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setCashMode('SETTLED')}
+                    className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition-colors ${
+                      cashMode === 'SETTLED'
+                        ? 'bg-emerald-500 text-white'
+                        : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+                    }`}
+                  >
+                    Settled Cash
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCashMode('TOTAL')}
+                    className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition-colors ${
+                      cashMode === 'TOTAL'
+                        ? 'bg-emerald-500 text-white'
+                        : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+                    }`}
+                  >
+                    All Cash
+                  </button>
+                </div>
+                <p className="text-[10px] text-zinc-600 leading-relaxed">
+                  {cashMode === 'SETTLED'
+                    ? 'Only uses funds that have cleared (T+1). Recommended for accounts under $25K to avoid Good Faith Violations.'
+                    : 'Uses all cash including unsettled proceeds from recent sales. Risk of Good Faith Violations.'}
+                </p>
+              </div>
+            )}
 
             {/* Allow Short Selling Toggle (only when Margin is selected) */}
             {capitalType === 'MARGIN' && (
