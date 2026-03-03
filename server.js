@@ -49,8 +49,9 @@ app.get('/api/bot-status', wrap(botStatusHandler));
 app.post('/api/bot-status', wrap(botStatusHandler));
 app.get('/api/market-prices', wrap(marketPricesHandler));
 app.get('/api/accounts', wrap(accountsHandler));
-app.post('/api/accounts', wrap(accountsHandler));
-app.delete('/api/accounts', wrap(accountsHandler));
+  app.post('/api/accounts', wrap(accountsHandler));
+  app.patch('/api/accounts', wrap(accountsHandler));
+  app.delete('/api/accounts', wrap(accountsHandler));
 app.get('/api/trading', wrap(tradingHandler));
 app.post('/api/trading', wrap(tradingHandler));
 

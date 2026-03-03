@@ -4,7 +4,7 @@ import {
   Plus, 
   Key, 
   Trash2, 
-  ExternalLink, 
+  Pencil, 
   X, 
   Info,
   CheckCircle2,
@@ -20,6 +20,11 @@ const Settings: React.FC = () => {
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalType, setModalType] = useState<AccountType>('Paper');
+
+  // Edit name modal
+  const [editAccountId, setEditAccountId] = useState<string | null>(null);
+  const [editAccountName, setEditAccountName] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
   
   // Form State
   const [newAccountName, setNewAccountName] = useState('');
@@ -107,6 +112,39 @@ const Settings: React.FC = () => {
     }
   };
 
+  const openEditName = (acc: Account) => {
+    setEditAccountId(acc.id);
+    setEditAccountName(acc.name);
+  };
+
+  const closeEditName = () => {
+    setEditAccountId(null);
+    setEditAccountName('');
+  };
+
+  const saveEditName = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editAccountId || !editAccountName.trim()) return;
+    setEditSaving(true);
+    try {
+      const res = await fetch('/api/accounts', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: editAccountId, name: editAccountName.trim() }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to update name');
+      }
+      await loadAccounts();
+      closeEditName();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to update name');
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
   const deleteAccount = async (id: string, type: AccountType) => {
     if (!confirm(`Are you sure you want to delete this ${type} account?`)) {
       return;
@@ -146,6 +184,7 @@ const Settings: React.FC = () => {
           accounts={paperAccounts}
           type="Paper"
           onAdd={() => openAddModal('Paper')}
+          onEdit={openEditName}
           onDelete={(id) => deleteAccount(id, 'Paper')}
           icon={<Wallet className="text-sky-400" size={20} />}
         />
@@ -157,6 +196,7 @@ const Settings: React.FC = () => {
           accounts={liveAccounts}
           type="Live"
           onAdd={() => openAddModal('Live')}
+          onEdit={openEditName}
           onDelete={(id) => deleteAccount(id, 'Live')}
           icon={<MoneyBagIcon className="text-[#B99DEB]" size={20} />}
         />
@@ -174,6 +214,49 @@ const Settings: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Edit Account Name Modal */}
+      {editAccountId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-[#181818] border border-zinc-800 w-full max-w-sm rounded-2xl overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="bg-[#171717] px-6 py-4 flex items-center justify-between border-b border-zinc-800">
+              <span className="text-xs font-bold text-zinc-200 tracking-widest uppercase">Edit Account Name</span>
+              <button onClick={closeEditName} className="text-zinc-500 hover:text-white transition-colors">
+                <X size={20} />
+              </button>
+            </div>
+            <form onSubmit={saveEditName} className="p-6 space-y-4">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 block px-1">Name</label>
+                <input
+                  type="text"
+                  value={editAccountName}
+                  onChange={(e) => setEditAccountName(e.target.value)}
+                  placeholder="e.g. Sortino Model"
+                  className="w-full bg-zinc-900/50 border border-zinc-800 rounded-xl py-2.5 px-4 text-sm text-white focus:outline-none focus:border-sky-400 transition-all placeholder:text-zinc-700"
+                  autoFocus
+                />
+              </div>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={closeEditName}
+                  className="flex-1 py-2.5 rounded-xl text-sm font-bold text-zinc-300 bg-zinc-800 hover:bg-zinc-700 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={editSaving || !editAccountName.trim()}
+                  className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white bg-sky-400 hover:bg-sky-300 disabled:opacity-50 transition-colors"
+                >
+                  {editSaving ? 'Saving…' : 'Save'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Add Account Modal */}
       {isModalOpen && (
@@ -260,11 +343,12 @@ interface SectionProps {
   accounts: Account[];
   type: AccountType;
   onAdd: () => void;
+  onEdit: (acc: Account) => void;
   onDelete: (id: string, type: AccountType) => void;
   icon: React.ReactNode;
 }
 
-const AccountSection: React.FC<SectionProps> = ({ title, description, accounts, type, onAdd, onDelete, icon }) => {
+const AccountSection: React.FC<SectionProps> = ({ title, description, accounts, type, onAdd, onEdit, onDelete, icon }) => {
   return (
     <div className="bg-[#181818] border border-zinc-800 rounded-2xl overflow-hidden shadow-sm">
       <div className="px-6 py-5 border-b border-zinc-800 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-[#171717]/30">
@@ -322,8 +406,12 @@ const AccountSection: React.FC<SectionProps> = ({ title, description, accounts, 
                     <code className="text-[10px] font-mono font-bold tracking-widest">{acc.apiKey || '***'}</code>
                   </div>
                   <div className="flex items-center gap-2">
-                    <button className="p-2 text-zinc-500 hover:text-zinc-200 transition-colors" title="External Dashboard">
-                      <ExternalLink size={14} />
+                    <button
+                      onClick={() => onEdit(acc)}
+                      className="p-2 text-zinc-500 hover:text-zinc-200 transition-colors"
+                      title="Edit account name"
+                    >
+                      <Pencil size={14} />
                     </button>
                     <button 
                       onClick={() => onDelete(acc.id, acc.type)}

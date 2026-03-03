@@ -114,6 +114,35 @@ export default async function handler(req, res) {
     return;
   }
 
+  // Handle PATCH - update account name only
+  if (req.method === 'PATCH') {
+    try {
+      let body = req.body;
+      if (typeof body === 'string') {
+        try {
+          body = JSON.parse(body);
+        } catch {
+          return res.status(400).json({ error: 'Invalid JSON' });
+        }
+      }
+      const { id, name } = body;
+      if (!id || !name || typeof name !== 'string' || !name.trim()) {
+        return res.status(400).json({ error: 'id and non-empty name required' });
+      }
+      const result = await pool.query(
+        'UPDATE accounts SET name = $2 WHERE id = $1 RETURNING id, name',
+        [id, name.trim()]
+      );
+      if (result.rowCount === 0) {
+        return res.status(404).json({ error: 'Account not found' });
+      }
+      return res.status(200).json({ success: true, account: result.rows[0] });
+    } catch (err) {
+      console.error('[accounts] PATCH error:', err);
+      return res.status(500).json({ error: err.message || 'Failed to update account name' });
+    }
+  }
+
   // Handle DELETE - remove account
   if (req.method === 'DELETE') {
     try {
