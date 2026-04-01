@@ -11,6 +11,7 @@ import os
 import sys
 import json
 import time
+import threading
 import traceback
 import numpy as np
 import pandas as pd
@@ -54,6 +55,11 @@ CORS(app)
 MODEL_DIR = os.path.dirname(__file__)
 REQUIRED_COLS = ["Open", "High", "Low", "Close", "Volume"]
 MODELS = {}  # keyed by strategy: 'sortino', 'upside'
+# Per-strategy metadata after load: version_number, display_name, model_path, loaded_at (ISO UTC)
+LOADED_META = {}
+MODEL_RELOAD_LOCK = threading.Lock()
+MODEL_RELOAD_INTERVAL = 3600  # seconds; match trade.py — poll DB for new active versions
+LAST_DB_VERSION_CHECK = 0.0
 
 # Map display names to API strategy keys
 STRATEGY_NAME_TO_KEY = {
@@ -103,12 +109,71 @@ def sanitize_ohlcv(df):
     return df, None
 
 
+def _sync_loaded_meta_from_db():
+    """Populate LOADED_META from DB for each key in MODELS; fallback rows if no DB row."""
+    global LOADED_META
+    from model_manager import get_active_version_rows
+
+    db_url = os.getenv("DATABASE_URL")
+    rows = get_active_version_rows(db_url) if db_url else {}
+    now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    LOADED_META = {}
+    for strat in list(MODELS.keys()):
+        if strat in rows:
+            LOADED_META[strat] = {**rows[strat], "loaded_at": now_iso}
+        else:
+            label = "Sortino_Model" if strat == "sortino" else "Upside_Model"
+            LOADED_META[strat] = {
+                "version_number": None,
+                "model_path": None,
+                "display_name": f"{label}_file",
+                "created_at": None,
+                "loaded_at": now_iso,
+            }
+
+
+def _should_reload_from_db() -> bool:
+    """True if DB active version differs from what we think we loaded."""
+    from model_manager import get_active_version_rows
+
+    db_url = os.getenv("DATABASE_URL")
+    if not db_url:
+        return False
+    db_rows = get_active_version_rows(db_url)
+    for strat in ("sortino", "upside"):
+        db_ver = db_rows.get(strat, {}).get("version_number")
+        loaded_ver = LOADED_META.get(strat, {}).get("version_number")
+        if db_ver != loaded_ver:
+            # DB has a new active version, or we only have file fallback (loaded_ver None) but DB has version
+            if db_ver is not None:
+                return True
+    return False
+
+
+def maybe_reload_models_if_stale():
+    """Poll DB at most once per MODEL_RELOAD_INTERVAL; reload weights if active version changed."""
+    global LAST_DB_VERSION_CHECK
+    now = time.time()
+    if now - LAST_DB_VERSION_CHECK < MODEL_RELOAD_INTERVAL:
+        return
+    with MODEL_RELOAD_LOCK:
+        now = time.time()
+        if now - LAST_DB_VERSION_CHECK < MODEL_RELOAD_INTERVAL:
+            return
+        LAST_DB_VERSION_CHECK = now
+        if not _should_reload_from_db():
+            return
+        print("[model_api] DB active model version changed; reloading models...", flush=True)
+        load_models()
+
+
 def load_models():
-    """Load both Sortino and Upside models on startup."""
+    """Load both Sortino and Upside models on startup or after DB version change."""
     global MODELS
     try:
         from model_manager import get_latest_model
         db_url = os.getenv("DATABASE_URL")
+        MODELS.clear()
         for strategy in ["sortino", "upside"]:
             try:
                 model = None
@@ -125,13 +190,41 @@ def load_models():
                         model = PPO.load(legacy_path)
                 if model is not None:
                     MODELS[strategy] = model
-                    print(f"[OK] Loaded {strategy} model")
+                    print(f"[OK] Loaded {strategy} model", flush=True)
             except Exception as e:
-                print(f"load_model ({strategy}) error: {e}")
+                print(f"load_model ({strategy}) error: {e}", flush=True)
+        _sync_loaded_meta_from_db()
         return len(MODELS) > 0
     except Exception as e:
-        print("load_models error:", e)
+        print("load_models error:", e, flush=True)
         return False
+
+
+def _background_reload_loop():
+    while True:
+        time.sleep(MODEL_RELOAD_INTERVAL)
+        try:
+            maybe_reload_models_if_stale()
+        except Exception as e:
+            print(f"[model_api] background reload error: {e}", flush=True)
+
+
+def _bootstrap_model_api():
+    """Load weights once at import (gunicorn/python) and start hourly DB poll thread."""
+    global LAST_DB_VERSION_CHECK
+    print("=" * 50, flush=True)
+    print("Sortino Model API — loading models...", flush=True)
+    print(f"Model directory: {MODEL_DIR}", flush=True)
+    try:
+        if load_models():
+            print(f"[OK] Loaded {len(MODELS)} model(s): {list(MODELS.keys())}", flush=True)
+        else:
+            print("[WARN] No models loaded. /predict will return 503 until models exist.", flush=True)
+    except Exception as e:
+        print(f"[ERROR] Loading models: {e}", flush=True)
+        traceback.print_exc()
+    LAST_DB_VERSION_CHECK = time.time()
+    threading.Thread(target=_background_reload_loop, daemon=True).start()
 
 
 @app.route("/", methods=["GET", "HEAD"])
@@ -143,12 +236,20 @@ def root():
 @app.route("/health", methods=["GET"])
 def health():
     """Health check endpoint - always returns 200, even if model not loaded."""
+    from model_manager import get_active_version_rows
+
+    db_url = os.getenv("DATABASE_URL")
+    db_active = get_active_version_rows(db_url) if db_url else {}
+    loaded_models = {k: dict(v) for k, v in LOADED_META.items()}
     return jsonify({
         "status": "ok",
         "models_loaded": {k: True for k in MODELS},
         "sortino_loaded": "sortino" in MODELS,
         "upside_loaded": "upside" in MODELS,
-        "service": "Sortino Model API"
+        "model_loaded": len(MODELS) > 0,
+        "loaded_models": loaded_models,
+        "db_active": db_active,
+        "service": "Sortino Model API",
     })
 
 
@@ -314,31 +415,16 @@ def predict():
         return jsonify({"error": str(e)}), 500
 
 
+_bootstrap_model_api()
+
 if __name__ == "__main__":
-    print("=" * 50)
-    print("Starting Sortino Model API...")
-    print(f"Python version: {sys.version}")
-    print(f"Working directory: {os.getcwd()}")
-    print(f"Model directory: {MODEL_DIR}")
-    print("=" * 50)
-    
-    print("Loading models...")
-    try:
-        if load_models():
-            print(f"[OK] Loaded {len(MODELS)} model(s): {list(MODELS.keys())}")
-        else:
-            print("[WARN] No models loaded. API will return 503 for /predict.")
-    except Exception as e:
-        print(f"[ERROR] Loading model: {e}")
-        import traceback
-        traceback.print_exc()
-    
+    print(f"Python version: {sys.version}", flush=True)
+    print(f"Working directory: {os.getcwd()}", flush=True)
     port = int(os.getenv("PORT", 5000))
-    print(f"Starting Flask app on port {port}...")
+    print(f"Starting Flask dev server on port {port}...", flush=True)
     try:
         app.run(host="0.0.0.0", port=port, debug=False)
     except Exception as e:
-        print(f"[ERROR] Failed to start Flask app: {e}")
-        import traceback
+        print(f"[ERROR] Failed to start Flask app: {e}", flush=True)
         traceback.print_exc()
         raise

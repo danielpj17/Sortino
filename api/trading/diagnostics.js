@@ -116,6 +116,10 @@ export default async function handler(req, res) {
       reachable: modelRes.ok,
       status: modelRes.status,
       model_loaded: modelData.model_loaded ?? null,
+      sortino_loaded: modelData.sortino_loaded ?? null,
+      upside_loaded: modelData.upside_loaded ?? null,
+      loaded_models: modelData.loaded_models ?? null,
+      db_active: modelData.db_active ?? null,
     };
     if (!modelRes.ok) {
       issues.push('Model API returned non-OK status');
@@ -124,6 +128,17 @@ export default async function handler(req, res) {
     if (modelData.model_loaded === false) {
       issues.push('Model API reports model not loaded');
       nextSteps.push('Ensure dow30_model.zip exists in python_engine and is deployed.');
+    }
+    const loaded = modelData.loaded_models || {};
+    const dbActive = modelData.db_active || {};
+    for (const key of ['sortino', 'upside']) {
+      const lv = loaded[key]?.version_number;
+      const dv = dbActive[key]?.version_number;
+      if (dv != null && lv != null && dv !== lv) {
+        issues.push(`Model API process may be stale: ${key} DB active v${dv} but loaded v${lv} (restart or wait for hourly reload)`);
+        nextSteps.push('Restart the Model API service or wait for automatic reload; verify DATABASE_URL on the Model API host.');
+        break;
+      }
     }
     if (MODEL_API_URL.includes('localhost')) {
       issues.push('MODEL_API_URL points to localhost (will not work on Vercel)');

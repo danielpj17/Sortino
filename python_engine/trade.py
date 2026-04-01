@@ -19,7 +19,7 @@ from stable_baselines3.common.vec_env import DummyVecEnv
 from gym_anytrading.envs import StocksEnv
 import gymnasium as gym
 from dotenv import load_dotenv
-from model_manager import get_latest_model
+from model_manager import get_latest_model, get_active_version_rows
 
 # Load env from project root and python_engine
 _load_dirs = [
@@ -403,7 +403,8 @@ def main():
             print(f"Model not found: {MODEL_PATH}. Run train.py first.")
             sys.exit(1)
     
-    print("Model loaded.")
+    _mv = get_active_version_rows(NEON_DATABASE_URL).get("sortino")
+    print(f"Model loaded. Active (DB): {_mv['display_name'] if _mv else 'file fallback'}")
     last_model_reload = time.time()
 
     while True:
@@ -434,7 +435,8 @@ def main():
                 if new_model is not None:
                     model = new_model
                     last_model_reload = current_time
-                    print("Model reloaded (new version available)")
+                    _mv = get_active_version_rows(NEON_DATABASE_URL).get("sortino")
+                    print(f"Model reloaded: {_mv['display_name'] if _mv else 'file fallback'}")
             
             print(f"--- Cycle @ {time.ctime()} ---")
             run_analysis_cycle(model, conn, accounts)

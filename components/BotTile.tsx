@@ -27,7 +27,9 @@ const BotTile: React.FC<BotTileProps> = ({ accountId, onStartBot, onStopBot, onV
     strategy_name: "Sortino Model",
     cash_mode: 'SETTLED' as 'SETTLED' | 'TOTAL',
     api_status: 'CONNECTED',
-    api_error: null as string | null
+    api_error: null as string | null,
+    active_model_display: null as string | null,
+    models_active: {} as Record<string, { version_number: number; model_path: string; display_name: string; created_at: string | null }>,
   });
   const [isRunning, setIsRunning] = useState(false);
   const [botActionLoading, setBotActionLoading] = useState(false);
@@ -118,6 +120,13 @@ const BotTile: React.FC<BotTileProps> = ({ accountId, onStartBot, onStopBot, onV
         <div className="flex items-center justify-between">
           <span className="text-xs font-bold text-zinc-500 uppercase tracking-widest">STRATEGY</span>
           <span className="text-sm font-bold text-zinc-300">{botStatus.strategy_name}</span>
+        </div>
+
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-bold text-zinc-500 uppercase tracking-widest">ACTIVE MODEL</span>
+          <span className="text-sm font-bold text-[#86c7f3] text-right max-w-[60%] break-words">
+            {botStatus.active_model_display ?? '—'}
+          </span>
         </div>
 
         <div className="flex items-center justify-between">

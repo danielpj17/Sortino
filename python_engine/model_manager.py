@@ -67,6 +67,52 @@ def get_db_connection(database_url: str):
     return psycopg2.connect(database_url)
 
 
+def display_name_for_strategy(strategy: str, version_number: int) -> str:
+    """UI/API display name: Sortino_Model_vX or Upside_Model_vX."""
+    if strategy == "upside":
+        return f"Upside_Model_v{version_number}"
+    return f"Sortino_Model_v{version_number}"
+
+
+def get_active_version_rows(database_url: str) -> Dict[str, Dict]:
+    """
+    Active model rows from DB for sortino and upside.
+    Keys are 'sortino' and/or 'upside'. Empty dict if table/column missing or on error.
+    Each value: version_number, model_path, display_name, created_at (ISO string or None).
+    """
+    conn = get_db_connection(database_url)
+    try:
+        cur = conn.cursor()
+        try:
+            cur.execute("""
+                SELECT strategy, version_number, model_path, created_at
+                FROM model_versions
+                WHERE is_active = TRUE AND strategy IN ('sortino', 'upside')
+            """)
+            rows = cur.fetchall()
+        except psycopg2.Error:
+            cur.close()
+            return {}
+        cur.close()
+        out: Dict[str, Dict] = {}
+        for row in rows:
+            strat, ver, path, created = row[0], row[1], row[2], row[3]
+            if strat not in ("sortino", "upside"):
+                continue
+            out[strat] = {
+                "version_number": int(ver),
+                "model_path": path,
+                "display_name": display_name_for_strategy(strat, int(ver)),
+                "created_at": created.isoformat() if created else None,
+            }
+        return out
+    except Exception as e:
+        print(f"get_active_version_rows: {e}")
+        return {}
+    finally:
+        conn.close()
+
+
 def get_latest_model(database_url: str, model_dir: str = None, strategy: str = "sortino") -> Optional[PPO]:
     """
     Load the most recent active model version for the given strategy.
@@ -366,20 +412,36 @@ def list_model_versions(database_url: str) -> List[Dict]:
     conn = get_db_connection(database_url)
     try:
         cur = conn.cursor()
-        cur.execute("""
-            SELECT 
-                id, version_number, model_path, created_at, training_type,
-                total_experiences, win_rate, avg_pnl, sortino_ratio, 
-                total_trades, is_active, notes
-            FROM model_versions
-            ORDER BY created_at DESC
-        """)
-        rows = cur.fetchall()
+        try:
+            cur.execute("""
+                SELECT 
+                    id, version_number, model_path, created_at, training_type,
+                    total_experiences, win_rate, avg_pnl, sortino_ratio, 
+                    total_trades, is_active, notes, strategy
+                FROM model_versions
+                ORDER BY created_at DESC
+            """)
+            rows = cur.fetchall()
+            has_strategy = True
+        except psycopg2.Error:
+            conn.rollback()
+            cur.close()
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT 
+                    id, version_number, model_path, created_at, training_type,
+                    total_experiences, win_rate, avg_pnl, sortino_ratio, 
+                    total_trades, is_active, notes
+                FROM model_versions
+                ORDER BY created_at DESC
+            """)
+            rows = cur.fetchall()
+            has_strategy = False
         cur.close()
         
         versions = []
         for row in rows:
-            versions.append({
+            base = {
                 'id': row[0],
                 'version_number': row[1],
                 'model_path': row[2],
@@ -392,7 +454,13 @@ def list_model_versions(database_url: str) -> List[Dict]:
                 'total_trades': row[9],
                 'is_active': row[10],
                 'notes': row[11]
-            })
+            }
+            if has_strategy:
+                strat = row[12]
+                base['strategy'] = strat if strat else 'sortino'
+            else:
+                base['strategy'] = 'sortino'
+            versions.append(base)
         return versions
     except Exception as e:
         print(f"Error listing model versions: {e}")

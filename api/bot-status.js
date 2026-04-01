@@ -2,6 +2,48 @@ import { getPool } from '../lib/db.js';
 import { safeLogError } from '../lib/safeLog.js';
 import { decrypt } from '../lib/encryption.js';
 
+/** Same mapping as api/trading/loop.js */
+const STRATEGY_NAME_TO_KEY = {
+  'Sortino Model': 'sortino',
+  'Upside Model': 'upside',
+};
+
+function displayNameForStrategy(strategy, versionNumber) {
+  if (strategy === 'upside') return `Upside_Model_v${versionNumber}`;
+  return `Sortino_Model_v${versionNumber}`;
+}
+
+async function fetchActiveModelVersions(pool) {
+  try {
+    const { rows } = await pool.query(`
+      SELECT strategy, version_number, model_path, created_at
+      FROM model_versions
+      WHERE is_active = TRUE AND strategy IN ('sortino', 'upside')
+    `);
+    const models_active = {};
+    for (const row of rows) {
+      const s = row.strategy;
+      if (s !== 'sortino' && s !== 'upside') continue;
+      models_active[s] = {
+        version_number: row.version_number,
+        model_path: row.model_path,
+        display_name: displayNameForStrategy(s, row.version_number),
+        created_at: row.created_at ? row.created_at.toISOString() : null,
+      };
+    }
+    return models_active;
+  } catch (e) {
+    safeLogError('fetchActiveModelVersions:', e);
+    return {};
+  }
+}
+
+function activeModelDisplayForAccount(strategyName, models_active) {
+  const key = STRATEGY_NAME_TO_KEY[strategyName] || 'sortino';
+  const row = models_active[key];
+  return row ? row.display_name : null;
+}
+
 export default async function handler(req, res) {
   // Enable CORS
   res.setHeader('Access-Control-Allow-Credentials', true);
@@ -158,6 +200,9 @@ export default async function handler(req, res) {
         apiError = err.message || 'Connection failed';
       }
 
+      const models_active = await fetchActiveModelVersions(pool);
+      const active_model_display = activeModelDisplayForAccount(account.strategy_name, models_active);
+
       res.status(200).json({
         account_name: account.name || 'STANDARD STRATEGY',
         bot_name: account.bot_name,
@@ -166,7 +211,9 @@ export default async function handler(req, res) {
         allow_shorting: account.allow_shorting,
         cash_mode: account.cash_mode,
         api_status: apiStatus,
-        api_error: apiError || null
+        api_error: apiError || null,
+        active_model_display,
+        models_active,
       });
     } catch (err) {
       safeLogError('Database error (POST):', err);
@@ -247,6 +294,8 @@ export default async function handler(req, res) {
           allow_shorting: false,
           cash_mode: 'SETTLED',
           api_status: 'DISCONNECTED',
+          active_model_display: null,
+          models_active: {},
           error: `Account with ID "${account_id}" not found in database. Please add it in Settings.`
         });
       }
@@ -258,7 +307,9 @@ export default async function handler(req, res) {
         strategy_name: "Sortino Model",
         allow_shorting: false,
         cash_mode: 'SETTLED',
-        api_status: 'DISCONNECTED'
+        api_status: 'DISCONNECTED',
+        active_model_display: null,
+        models_active: {},
       });
     }
 
@@ -328,6 +379,9 @@ export default async function handler(req, res) {
       safeLogError('API status check error:', err);
     }
 
+    const models_active = await fetchActiveModelVersions(pool);
+    const active_model_display = activeModelDisplayForAccount(strategy_name, models_active);
+
     res.status(200).json({
       account_name: account.name || 'STANDARD STRATEGY',
       bot_name: bot_name,
@@ -336,7 +390,9 @@ export default async function handler(req, res) {
       allow_shorting: allow_shorting,
       cash_mode: cash_mode,
       api_status: apiStatus,
-      api_error: apiError || null
+      api_error: apiError || null,
+      active_model_display,
+      models_active,
     });
   } catch (err) {
     safeLogError('Database error (GET):', err);
