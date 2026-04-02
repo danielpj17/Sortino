@@ -8,9 +8,17 @@ const STRATEGY_NAME_TO_KEY = {
   'Upside Model': 'upside',
 };
 
-function displayNameForStrategy(strategy, versionNumber) {
-  if (strategy === 'upside') return `Upside_Model_v${versionNumber}`;
-  return `Sortino_Model_v${versionNumber}`;
+/** Match python_engine/model_manager.display_name_for_retrain_date (UTC calendar date). */
+function formatActiveModelDisplay(strategy, createdAt) {
+  if (createdAt == null) return null;
+  const d = createdAt instanceof Date ? createdAt : new Date(createdAt);
+  if (Number.isNaN(d.getTime())) return null;
+  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(d.getUTCDate()).padStart(2, '0');
+  const yy = String(d.getUTCFullYear() % 100).padStart(2, '0');
+  const label = `${mm}-${dd}-${yy}`;
+  if (strategy === 'upside') return `Upside_(${label})`;
+  return `Sortino_(${label})`;
 }
 
 async function fetchActiveModelVersions(pool) {
@@ -24,11 +32,12 @@ async function fetchActiveModelVersions(pool) {
     for (const row of rows) {
       const s = row.strategy;
       if (s !== 'sortino' && s !== 'upside') continue;
+      const created = row.created_at || null;
       models_active[s] = {
         version_number: row.version_number,
         model_path: row.model_path,
-        display_name: displayNameForStrategy(s, row.version_number),
-        created_at: row.created_at ? row.created_at.toISOString() : null,
+        display_name: formatActiveModelDisplay(s, created),
+        created_at: created ? created.toISOString() : null,
       };
     }
     return models_active;

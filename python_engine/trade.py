@@ -403,7 +403,8 @@ def main():
             print(f"Model not found: {MODEL_PATH}. Run train.py first.")
             sys.exit(1)
     
-    _mv = get_active_version_rows(NEON_DATABASE_URL).get("sortino")
+    _engine_dir = os.path.dirname(__file__)
+    _mv = get_active_version_rows(NEON_DATABASE_URL, _engine_dir).get("sortino")
     print(f"Model loaded. Active (DB): {_mv['display_name'] if _mv else 'file fallback'}")
     last_model_reload = time.time()
 
@@ -435,7 +436,7 @@ def main():
                 if new_model is not None:
                     model = new_model
                     last_model_reload = current_time
-                    _mv = get_active_version_rows(NEON_DATABASE_URL).get("sortino")
+                    _mv = get_active_version_rows(NEON_DATABASE_URL, os.path.dirname(__file__)).get("sortino")
                     print(f"Model reloaded: {_mv['display_name'] if _mv else 'file fallback'}")
             
             print(f"--- Cycle @ {time.ctime()} ---")

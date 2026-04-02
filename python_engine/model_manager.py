@@ -5,8 +5,8 @@ import os
 import json
 import psycopg2
 from stable_baselines3 import PPO
-from typing import Optional, Dict, List, Tuple
-from datetime import datetime
+from typing import Optional, Dict, List, Tuple, Any
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -67,18 +67,60 @@ def get_db_connection(database_url: str):
     return psycopg2.connect(database_url)
 
 
-def display_name_for_strategy(strategy: str, version_number: int) -> str:
-    """UI/API display name: Sortino_Model_vX or Upside_Model_vX."""
+def display_name_for_retrain_date(strategy: str, dt: datetime) -> str:
+    """Sortino_(MM-DD-YY) / Upside_(MM-DD-YY) using UTC calendar date."""
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+    mm, dd, yy = dt.month, dt.day, dt.year % 100
+    label = f"{mm:02d}-{dd:02d}-{yy:02d}"
     if strategy == "upside":
-        return f"Upside_Model_v{version_number}"
-    return f"Sortino_Model_v{version_number}"
+        return f"Upside_({label})"
+    return f"Sortino_({label})"
 
 
-def get_active_version_rows(database_url: str) -> Dict[str, Dict]:
+def _datetime_for_active_row(
+    model_dir: Optional[str], model_path: Optional[str], created: Any
+) -> Optional[datetime]:
+    """Prefer on-disk mtime of the active zip when model_dir is set; else DB created_at (UTC)."""
+    if model_dir and model_path:
+        full = model_path if os.path.isabs(model_path) else os.path.join(model_dir, model_path)
+        if os.path.isfile(full):
+            return datetime.utcfromtimestamp(os.path.getmtime(full))
+    if created is None:
+        return None
+    if not isinstance(created, datetime):
+        return None
+    if created.tzinfo is not None:
+        return created.astimezone(timezone.utc).replace(tzinfo=None)
+    return created
+
+
+def resolve_fallback_model_zip(strategy: str, model_dir: str) -> Optional[str]:
+    """First existing zip path used when there is no model_versions row (file-only load)."""
+    candidates = [os.path.join(model_dir, f"dow30_{strategy}_model.zip")]
+    if strategy == "sortino":
+        candidates.append(os.path.join(model_dir, "dow30_model.zip"))
+    for p in candidates:
+        if os.path.isfile(p):
+            return p
+    return None
+
+
+def display_name_for_fallback_file(strategy: str, model_dir: str) -> str:
+    """Label from zip mtime when loading without a DB row; unknown if no file."""
+    p = resolve_fallback_model_zip(strategy, model_dir)
+    if not p:
+        return "Upside_(unknown)" if strategy == "upside" else "Sortino_(unknown)"
+    dt = datetime.utcfromtimestamp(os.path.getmtime(p))
+    return display_name_for_retrain_date(strategy, dt)
+
+
+def get_active_version_rows(database_url: str, model_dir: Optional[str] = None) -> Dict[str, Dict]:
     """
     Active model rows from DB for sortino and upside.
     Keys are 'sortino' and/or 'upside'. Empty dict if table/column missing or on error.
     Each value: version_number, model_path, display_name, created_at (ISO string or None).
+    display_name uses zip mtime when model_dir is set and file exists; else DB created_at (UTC date).
     """
     conn = get_db_connection(database_url)
     try:
@@ -99,10 +141,15 @@ def get_active_version_rows(database_url: str) -> Dict[str, Dict]:
             strat, ver, path, created = row[0], row[1], row[2], row[3]
             if strat not in ("sortino", "upside"):
                 continue
+            dt = _datetime_for_active_row(model_dir, path, created)
+            if dt is None:
+                disp = "Upside_(unknown)" if strat == "upside" else "Sortino_(unknown)"
+            else:
+                disp = display_name_for_retrain_date(strat, dt)
             out[strat] = {
                 "version_number": int(ver),
                 "model_path": path,
-                "display_name": display_name_for_strategy(strat, int(ver)),
+                "display_name": disp,
                 "created_at": created.isoformat() if created else None,
             }
         return out

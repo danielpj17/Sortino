@@ -112,21 +112,20 @@ def sanitize_ohlcv(df):
 def _sync_loaded_meta_from_db():
     """Populate LOADED_META from DB for each key in MODELS; fallback rows if no DB row."""
     global LOADED_META
-    from model_manager import get_active_version_rows
+    from model_manager import get_active_version_rows, display_name_for_fallback_file
 
     db_url = os.getenv("DATABASE_URL")
-    rows = get_active_version_rows(db_url) if db_url else {}
+    rows = get_active_version_rows(db_url, MODEL_DIR) if db_url else {}
     now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     LOADED_META = {}
     for strat in list(MODELS.keys()):
         if strat in rows:
             LOADED_META[strat] = {**rows[strat], "loaded_at": now_iso}
         else:
-            label = "Sortino_Model" if strat == "sortino" else "Upside_Model"
             LOADED_META[strat] = {
                 "version_number": None,
                 "model_path": None,
-                "display_name": f"{label}_file",
+                "display_name": display_name_for_fallback_file(strat, MODEL_DIR),
                 "created_at": None,
                 "loaded_at": now_iso,
             }
@@ -139,7 +138,7 @@ def _should_reload_from_db() -> bool:
     db_url = os.getenv("DATABASE_URL")
     if not db_url:
         return False
-    db_rows = get_active_version_rows(db_url)
+    db_rows = get_active_version_rows(db_url, MODEL_DIR)
     for strat in ("sortino", "upside"):
         db_ver = db_rows.get(strat, {}).get("version_number")
         loaded_ver = LOADED_META.get(strat, {}).get("version_number")
@@ -239,7 +238,7 @@ def health():
     from model_manager import get_active_version_rows
 
     db_url = os.getenv("DATABASE_URL")
-    db_active = get_active_version_rows(db_url) if db_url else {}
+    db_active = get_active_version_rows(db_url, MODEL_DIR) if db_url else {}
     loaded_models = {k: dict(v) for k, v in LOADED_META.items()}
     return jsonify({
         "status": "ok",

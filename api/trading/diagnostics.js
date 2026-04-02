@@ -140,6 +140,20 @@ export default async function handler(req, res) {
         break;
       }
     }
+    for (const key of ['sortino', 'upside']) {
+      const lv = loaded[key]?.version_number;
+      const dv = dbActive[key]?.version_number;
+      if (dv != null && lv != null && dv === lv) {
+        const ld = loaded[key]?.display_name;
+        const dd = dbActive[key]?.display_name;
+        if (ld && dd && ld !== dd) {
+          issues.push(
+            `Model API label mismatch for ${key} (same version): process shows "${ld}" vs DB "${dd}" — on-disk file may differ from DB row`
+          );
+          nextSteps.push('Confirm model_versions.model_path exists on the Model API host and matches the deployed zip.');
+        }
+      }
+    }
     if (MODEL_API_URL.includes('localhost')) {
       issues.push('MODEL_API_URL points to localhost (will not work on Vercel)');
       nextSteps.push('Set MODEL_API_URL in Vercel to your deployed Model API URL (e.g. https://xxx.onrender.com)');
