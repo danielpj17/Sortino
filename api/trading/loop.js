@@ -406,6 +406,31 @@ export async function executeTradingLoop(accountId) {
   } else {
     effectiveBuyingPower = cash;
   }
+  const capitalUtilization = acc.capital_utilization ?? 1.0;
+  const maxDeployable = portfolioValue * capitalUtilization;
+  effectiveBuyingPower = Math.min(effectiveBuyingPower, maxDeployable);
+
+  const allowOvernight = acc.allow_overnight !== false;
+  if (!allowOvernight) {
+    const etNow = new Date().toLocaleString('en-US', {
+      timeZone: 'America/New_York',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+    const [eodHour, eodMinute] = etNow.split(':').map(Number);
+    if (eodHour === 15 && eodMinute >= 45) {
+      console.log(`[loop] EOD close triggered for account ${accountId} at ${etNow} ET`);
+      const headers = { 'APCA-API-KEY-ID': acc.api_key, 'APCA-API-SECRET-KEY': acc.secret_key };
+      try {
+        await fetch(`${baseUrl}/v2/positions`, { method: 'DELETE', headers });
+      } catch (e) {
+        console.warn(`[loop] EOD close failed for account ${accountId}:`, e.message);
+      }
+      return { success: true, results: [], skipped: true, reason: 'eod_close' };
+    }
+  }
+
   const tradeValue = Math.min(maxTradeValue, effectiveBuyingPower);
   const allowShorting = !!acc.allow_shorting;
   const strategyName = acc.strategy_name || "Sortino Model";

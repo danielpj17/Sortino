@@ -8,8 +8,12 @@ import sys
 import warnings
 
 warnings.filterwarnings("ignore", message="Gym has been unmaintained")
-warnings.filterwarnings("ignore", message="Timestamp.utcnow is deprecated")
-warnings.filterwarnings("ignore", message=".*Timestamp.utcnow is deprecated.*", module=r"yfinance\.scrapers\.history")
+warnings.filterwarnings("ignore", category=FutureWarning, module="yfinance")
+try:
+    from pandas.errors import Pandas4Warning
+    warnings.filterwarnings("ignore", category=Pandas4Warning)
+except ImportError:
+    pass
 
 import argparse
 import time
@@ -129,23 +133,25 @@ def sanitize_ohlcv(df):
     return df, None
 
 
-def full_retrain(model_dir=None, strategy="sortino"):
+def full_retrain(model_dir=None, strategies=None):
     """
     Full retrain from historical Dow 30 data.
+    Downloads each ticker once and trains all requested strategies on the same data.
 
     Returns:
-        Trained PPO model
+        dict mapping strategy name -> trained PPO model
     """
+    if strategies is None:
+        strategies = ["sortino"]
     if model_dir is None:
         model_dir = os.path.dirname(__file__)
 
-    reward_fn = get_reward_function(strategy)
-    GymnasiumWrapper = make_gymnasium_wrapper(reward_fn)
+    reward_fns = {s: get_reward_function(s) for s in strategies}
+    Wrappers = {s: make_gymnasium_wrapper(reward_fns[s]) for s in strategies}
+    models = {s: None for s in strategies}
+    trained_counts = {s: 0 for s in strategies}
 
-    print("Starting full retrain on historical data...")
-
-    model = None
-    trained_count = 0
+    print(f"Starting full retrain on historical data (strategies: {', '.join(strategies)})...")
 
     for i, ticker in enumerate(DOW_30):
         print(f"\n[{i+1}/{len(DOW_30)}] Processing {ticker}...")
@@ -157,107 +163,122 @@ def full_retrain(model_dir=None, strategy="sortino"):
                 print(f"Skipping {ticker}: insufficient data")
                 continue
 
-            env = DummyVecEnv([lambda d=df: GymnasiumWrapper(d)])
-
-            if model is None:
-                print("Initializing new PPO Agent...")
-                model = PPO('MlpPolicy', env, verbose=0)
-            else:
-                model.set_env(env)
-
-            model.learn(total_timesteps=5000)
-            trained_count += 1
+            for s in strategies:
+                env = DummyVecEnv([lambda d=df, W=Wrappers[s]: W(d)])
+                if models[s] is None:
+                    print(f"  Initializing new PPO Agent ({s})...")
+                    models[s] = PPO('MlpPolicy', env, verbose=0)
+                else:
+                    models[s].set_env(env)
+                models[s].learn(total_timesteps=5000)
+                trained_counts[s] += 1
 
         except Exception as e:
             print(f"Error training on {ticker}: {e}")
             continue
 
-    if model is None:
-        raise RuntimeError(
-            f"No model could be trained: all {len(DOW_30)} tickers were skipped. "
-            "Check network/SSL - add YFINANCE_INSECURE_SSL=1 to .env if you get certificate errors."
-        )
+    for s in strategies:
+        if models[s] is None:
+            raise RuntimeError(
+                f"No model could be trained for strategy '{s}': all {len(DOW_30)} tickers were skipped. "
+                "Check network/SSL - add YFINANCE_INSECURE_SSL=1 to .env if you get certificate errors."
+            )
+        print(f"\nTrained {s} on {trained_counts[s]}/{len(DOW_30)} tickers.")
 
-    print(f"\nTrained on {trained_count}/{len(DOW_30)} tickers.")
-    return model
+    return models
 
 
-def should_retrain(strategy="sortino"):
-    """Check if 7+ days have passed since last full retrain."""
+def should_retrain(strategies):
+    """Check if 7+ days have passed since last full retrain for any of the given strategies."""
     conn = get_db_connection(NEON_DATABASE_URL)
     try:
         cur = conn.cursor()
-        try:
-            cur.execute("""
-                SELECT created_at
-                FROM model_versions
-                WHERE training_type = 'full_retrain' AND strategy = %s
-                ORDER BY created_at DESC
-                LIMIT 1
-            """, (strategy,))
-        except psycopg2.Error:
-            cur.execute("""
-                SELECT created_at
-                FROM model_versions
-                WHERE training_type = 'full_retrain'
-                ORDER BY created_at DESC
-                LIMIT 1
-            """)
-        row = cur.fetchone()
+        needs_retrain = False
+        for strategy in strategies:
+            try:
+                cur.execute("""
+                    SELECT created_at
+                    FROM model_versions
+                    WHERE training_type = 'full_retrain' AND strategy = %s
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                """, (strategy,))
+            except psycopg2.Error:
+                cur.execute("""
+                    SELECT created_at
+                    FROM model_versions
+                    WHERE training_type = 'full_retrain'
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                """)
+            row = cur.fetchone()
+
+            if not row:
+                print(f"No previous retrain found for {strategy}.")
+                needs_retrain = True
+                continue
+
+            last_retrain = row[0]
+            days_since = (time.time() - last_retrain.timestamp()) / 86400
+            print(f"Last full retrain for {strategy} was {days_since:.1f} days ago.")
+            if days_since >= 7:
+                needs_retrain = True
+
         cur.close()
-
-        if not row:
-            return True
-
-        last_retrain = row[0]
-        days_since = (time.time() - last_retrain.timestamp()) / 86400
-        print(f"Last full retrain was {days_since:.1f} days ago.")
-        return days_since >= 7
+        return needs_retrain
     finally:
         conn.close()
 
 
 def main():
     parser = argparse.ArgumentParser(description="Weekly retrain for Dow30 RL model")
-    parser.add_argument("--strategy", choices=["sortino", "upside"], default="sortino",
-                        help="Strategy to retrain: sortino or upside")
+    parser.add_argument("--strategy", choices=["sortino", "upside", "both"], default="sortino",
+                        help="Strategy to retrain: sortino, upside, or both")
     parser.add_argument("--force", action="store_true",
                         help="Force retrain even if less than 7 days since last")
     args = parser.parse_args()
-    strategy = args.strategy
+    strategies = ["sortino", "upside"] if args.strategy == "both" else [args.strategy]
 
     print("=" * 60)
-    print(f"Model Retraining Script (strategy={strategy})")
+    print(f"Model Retraining Script (strategies={', '.join(strategies)})")
     print("=" * 60)
 
-    if not args.force and not should_retrain(strategy):
+    if not args.force and not should_retrain(strategies):
         print("Not time for weekly retrain yet. Skipping.")
         return
 
     try:
         model_dir = os.path.dirname(__file__)
-        model = full_retrain(model_dir=model_dir, strategy=strategy)
+        models = full_retrain(model_dir=model_dir, strategies=strategies)
 
-        if model is None:
-            print("\n[ERROR] No model to save (training failed for all tickers).")
+        all_ok = True
+        for s, model in models.items():
+            if model is None:
+                print(f"\n[ERROR] No model to save for {s} (training failed for all tickers).")
+                all_ok = False
+                continue
+
+            print(f"\nSaving model version (strategy={s}, training_type=full_retrain)...")
+            version = save_model_version(
+                model,
+                NEON_DATABASE_URL,
+                model_dir=model_dir,
+                training_type="full_retrain",
+                total_experiences=0,
+                notes=f"Weekly retrain, strategy={s}",
+                strategy=s
+            )
+
+            if version:
+                print(f"[OK] {s} model version {version} saved and activated.")
+            else:
+                print(f"[ERROR] Error saving model version for {s}")
+                all_ok = False
+
+        if not all_ok:
             sys.exit(1)
 
-        print(f"\nSaving model version (strategy={strategy}, training_type=full_retrain)...")
-        version = save_model_version(
-            model,
-            NEON_DATABASE_URL,
-            model_dir=model_dir,
-            training_type="full_retrain",
-            total_experiences=0,
-            notes=f"Weekly retrain, strategy={strategy}",
-            strategy=strategy
-        )
-
-        if version:
-            print(f"\n[OK] Retraining complete! Model version {version} saved and activated.")
-        else:
-            print("\n[ERROR] Error saving model version")
-            sys.exit(1)
+        print(f"\n[OK] Retraining complete for: {', '.join(strategies)}")
 
     except Exception as e:
         print(f"\n[ERROR] Error during retraining: {e}")

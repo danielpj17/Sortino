@@ -30,6 +30,8 @@ const BotTile: React.FC<BotTileProps> = ({ accountId, onStartBot, onStopBot, onV
     api_error: null as string | null,
     active_model_display: null as string | null,
     models_active: {} as Record<string, { version_number: number; model_path: string; display_name: string; created_at: string | null }>,
+    capital_utilization: 1.0 as number,
+    allow_overnight: true as boolean,
   });
   const [isRunning, setIsRunning] = useState(false);
   const [botActionLoading, setBotActionLoading] = useState(false);
@@ -142,6 +144,20 @@ const BotTile: React.FC<BotTileProps> = ({ accountId, onStartBot, onStopBot, onV
             </span>
           </div>
         )}
+
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-bold text-zinc-500 uppercase tracking-widest">UTIL</span>
+          <span className="text-sm font-bold text-zinc-300">
+            {Math.round(botStatus.capital_utilization * 100)}%
+          </span>
+        </div>
+
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-bold text-zinc-500 uppercase tracking-widest">TRADING</span>
+          <span className={`text-sm font-bold ${botStatus.allow_overnight ? 'text-emerald-400' : 'text-amber-400'}`}>
+            {botStatus.allow_overnight ? 'OVERNIGHT' : 'EOD CLOSE'}
+          </span>
+        </div>
 
         <div className="flex items-center justify-between">
           <span className="text-xs font-bold text-zinc-500 uppercase tracking-widest">API</span>

@@ -19,6 +19,8 @@ const ConfigureAgentModal: React.FC<ConfigureAgentModalProps> = ({
   const [capitalType, setCapitalType] = useState<'CASH' | 'MARGIN'>('CASH');
   const [cashMode, setCashMode] = useState<'SETTLED' | 'TOTAL'>('SETTLED');
   const [allowShorting, setAllowShorting] = useState(false);
+  const [capitalUtilization, setCapitalUtilization] = useState(100);
+  const [allowOvernight, setAllowOvernight] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const modalRef = useRef<HTMLDivElement>(null);
@@ -36,6 +38,8 @@ const ConfigureAgentModal: React.FC<ConfigureAgentModalProps> = ({
             setCapitalType(data.account_type_display === 'MARGIN' ? 'MARGIN' : 'CASH');
             setCashMode(data.cash_mode === 'TOTAL' ? 'TOTAL' : 'SETTLED');
             setAllowShorting(data.allow_shorting || false);
+            setCapitalUtilization(Math.round((data.capital_utilization ?? 1.0) * 100));
+            setAllowOvernight(data.allow_overnight ?? true);
           }
         } catch (err) {
           console.error('Failed to fetch settings', err);
@@ -97,7 +101,9 @@ const ConfigureAgentModal: React.FC<ConfigureAgentModalProps> = ({
           strategy_name: strategyName,
           account_type_display: capitalType,
           allow_shorting: capitalType === 'MARGIN' ? allowShorting : false,
-          cash_mode: capitalType === 'CASH' ? cashMode : 'TOTAL'
+          cash_mode: capitalType === 'CASH' ? cashMode : 'TOTAL',
+          capital_utilization: capitalUtilization / 100,
+          allow_overnight: allowOvernight,
         })
       });
 
@@ -174,6 +180,7 @@ const ConfigureAgentModal: React.FC<ConfigureAgentModalProps> = ({
                 onClick={() => {
                   setCapitalType('CASH');
                   setAllowShorting(false);
+                  setCapitalUtilization(prev => Math.min(prev, 100));
                 }}
                 className={`flex-1 min-w-0 py-3 px-4 rounded-xl text-sm font-bold transition-colors ${
                   capitalType === 'CASH'
@@ -253,6 +260,70 @@ const ConfigureAgentModal: React.FC<ConfigureAgentModalProps> = ({
                 </button>
               </div>
             )}
+
+            {/* Capital Utilization Slider */}
+            <div className="space-y-2 pt-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest">
+                  CAPITAL UTILIZATION
+                </label>
+                <span className="text-sm font-bold text-[#86c7f3]">{capitalUtilization}%</span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={capitalType === 'CASH' ? 100 : 200}
+                step={5}
+                value={capitalUtilization}
+                onChange={(e) => setCapitalUtilization(parseInt(e.target.value, 10))}
+                className="w-full h-2 rounded-full appearance-none cursor-pointer bg-zinc-700 accent-[#86c7f3]"
+              />
+              <p className="text-[10px] text-zinc-600 leading-relaxed">
+                {capitalUtilization === 0
+                  ? 'Bot will not open any new positions.'
+                  : capitalType === 'CASH'
+                  ? `Bot uses up to ${capitalUtilization}% of available cash at any time.`
+                  : capitalUtilization <= 100
+                  ? `Bot uses up to ${capitalUtilization}% of portfolio value (cash only, no margin).`
+                  : `Bot uses up to ${capitalUtilization}% of portfolio value (${capitalUtilization - 100}% margin leverage).`}
+              </p>
+            </div>
+          </div>
+
+          {/* Overnight Trading Section */}
+          <div className="space-y-3">
+            <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest block">
+              TRADING HOURS
+            </label>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setAllowOvernight(true)}
+                className={`flex-1 min-w-0 py-3 px-4 rounded-xl text-sm font-bold transition-colors ${
+                  allowOvernight
+                    ? 'bg-emerald-500 text-white'
+                    : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+                }`}
+              >
+                Allow Overnight
+              </button>
+              <button
+                type="button"
+                onClick={() => setAllowOvernight(false)}
+                className={`flex-1 min-w-0 py-3 px-4 rounded-xl text-sm font-bold transition-colors ${
+                  !allowOvernight
+                    ? 'bg-amber-500 text-white'
+                    : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+                }`}
+              >
+                Close by 3:45 PM
+              </button>
+            </div>
+            <p className="text-[10px] text-zinc-600 leading-relaxed">
+              {allowOvernight
+                ? 'Positions may be held overnight and over weekends.'
+                : 'All open positions will be closed at 3:45 PM ET each trading day.'}
+            </p>
           </div>
 
           {/* Error Message */}

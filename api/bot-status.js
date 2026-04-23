@@ -82,7 +82,8 @@ export default async function handler(req, res) {
         }
       }
 
-      const { account_id, strategy_name, account_type_display, allow_shorting, cash_mode } = body;
+      const { account_id, strategy_name, account_type_display, allow_shorting, cash_mode,
+              capital_utilization, allow_overnight } = body;
 
       if (!account_id) {
         return res.status(400).json({ error: 'account_id is required' });
@@ -92,22 +93,29 @@ export default async function handler(req, res) {
       
       // First, ensure columns exist by attempting to update them
       // If columns don't exist, this will fail gracefully
+      const capitalUtil = Math.min(2.0, Math.max(0.0, parseFloat(capital_utilization) || 1.0));
+      const allowOvernight = allow_overnight !== false;
+
       let updateQuery = `
-        UPDATE accounts 
+        UPDATE accounts
         SET strategy_name = $1,
             account_type_display = $2,
             allow_shorting = $3,
-            cash_mode = $5
+            cash_mode = $5,
+            capital_utilization = $6,
+            allow_overnight = $7
         WHERE id = $4
       `;
-      
+
       try {
         await pool.query(updateQuery, [
           strategy_name || "Sortino Model",
           account_type_display || 'CASH',
           allow_shorting || false,
           account_id,
-          cash_mode || 'SETTLED'
+          cash_mode || 'SETTLED',
+          capitalUtil,
+          allowOvernight
         ]);
       } catch (updateErr) {
         // If columns don't exist, return error suggesting migration
@@ -122,7 +130,7 @@ export default async function handler(req, res) {
       
       // Fetch updated account
       const fetchQuery = `
-        SELECT 
+        SELECT
           id,
           name,
           COALESCE(bot_name, 'ALPHA-01') as bot_name,
@@ -130,6 +138,8 @@ export default async function handler(req, res) {
           COALESCE(strategy_name, 'Sortino Model') as strategy_name,
           COALESCE(allow_shorting, FALSE) as allow_shorting,
           COALESCE(cash_mode, 'SETTLED') as cash_mode,
+          COALESCE(CAST(capital_utilization AS FLOAT), 1.0) as capital_utilization,
+          COALESCE(allow_overnight, TRUE) as allow_overnight,
           api_key,
           secret_key,
           type
@@ -219,6 +229,8 @@ export default async function handler(req, res) {
         strategy_name: account.strategy_name,
         allow_shorting: account.allow_shorting,
         cash_mode: account.cash_mode,
+        capital_utilization: account.capital_utilization ?? 1.0,
+        allow_overnight: account.allow_overnight ?? true,
         api_status: apiStatus,
         api_error: apiError || null,
         active_model_display,
@@ -247,7 +259,7 @@ export default async function handler(req, res) {
     
     // Try full query with extended columns first
     let query = `
-      SELECT 
+      SELECT
         id,
         name,
         COALESCE(bot_name, 'ALPHA-01') as bot_name,
@@ -255,6 +267,8 @@ export default async function handler(req, res) {
         COALESCE(strategy_name, 'Sortino Model') as strategy_name,
         COALESCE(allow_shorting, FALSE) as allow_shorting,
         COALESCE(cash_mode, 'SETTLED') as cash_mode,
+        COALESCE(CAST(capital_utilization AS FLOAT), 1.0) as capital_utilization,
+        COALESCE(allow_overnight, TRUE) as allow_overnight,
         api_key,
         secret_key,
         type
@@ -302,6 +316,8 @@ export default async function handler(req, res) {
           strategy_name: "Sortino Model",
           allow_shorting: false,
           cash_mode: 'SETTLED',
+          capital_utilization: 1.0,
+          allow_overnight: true,
           api_status: 'DISCONNECTED',
           active_model_display: null,
           models_active: {},
@@ -316,6 +332,8 @@ export default async function handler(req, res) {
         strategy_name: "Sortino Model",
         allow_shorting: false,
         cash_mode: 'SETTLED',
+        capital_utilization: 1.0,
+        allow_overnight: true,
         api_status: 'DISCONNECTED',
         active_model_display: null,
         models_active: {},
@@ -330,6 +348,8 @@ export default async function handler(req, res) {
     const strategy_name = account.strategy_name !== undefined ? account.strategy_name : "Sortino Model";
     const allow_shorting = account.allow_shorting !== undefined ? account.allow_shorting : false;
     const cash_mode = account.cash_mode !== undefined ? account.cash_mode : 'SETTLED';
+    const capital_utilization = account.capital_utilization !== undefined ? account.capital_utilization : 1.0;
+    const allow_overnight = account.allow_overnight !== undefined ? account.allow_overnight : true;
     
     // Check API status by attempting to connect to Alpaca
     let apiStatus = 'CONNECTED';
@@ -398,6 +418,8 @@ export default async function handler(req, res) {
       strategy_name: strategy_name,
       allow_shorting: allow_shorting,
       cash_mode: cash_mode,
+      capital_utilization: capital_utilization,
+      allow_overnight: allow_overnight,
       api_status: apiStatus,
       api_error: apiError || null,
       active_model_display,
