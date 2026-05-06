@@ -22,13 +22,12 @@ import pandas as pd
 import yfinance as yf
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
-from gym_anytrading.envs import StocksEnv
-import gymnasium as gym
 from dotenv import load_dotenv
 from model_manager import (
     get_latest_model, save_model_version,
     get_db_connection, get_reward_function
 )
+from feature_env import FeatureEnrichedEnv
 
 # Load environment variables
 _load_dirs = [
@@ -59,7 +58,7 @@ if os.getenv("YFINANCE_INSECURE_SSL", "").strip().lower() in ("1", "true", "yes"
 DOW_30 = [
     "AXP", "AMGN", "AAPL", "BA", "CAT", "CSCO", "CVX", "GS", "HD", "HON",
     "IBM", "INTC", "JNJ", "KO", "JPM", "MCD", "MMM", "MRK", "MSFT", "NKE",
-    "PG", "TRV", "UNH", "CRM", "VZ", "V", "WMT", "DIS", "DOW",
+    "NVDA", "PG", "TRV", "UNH", "CRM", "VZ", "V", "WMT", "DIS", "DOW",
 ]
 
 REQUIRED_COLS = ["Open", "High", "Low", "Close", "Volume"]
@@ -87,34 +86,7 @@ def _download_yf_with_retries(ticker, max_attempts=3, **kwargs):
     return pd.DataFrame()
 
 
-def make_gymnasium_wrapper(reward_fn):
-    """Factory for GymnasiumWrapper with the given reward function."""
-    class GymnasiumWrapper(gym.Env):
-        def __init__(self, df):
-            super().__init__()
-            self.env = StocksEnv(df=df, window_size=10, frame_bound=(10, len(df)))
-            self.action_space = self.env.action_space
-            self.observation_space = self.env.observation_space
-
-        def reset(self, seed=None, options=None):
-            obs = self.env.reset()
-            if isinstance(obs, tuple):
-                obs = obs[0]
-            return obs, {}
-
-        def step(self, action):
-            out = self.env.step(action)
-            obs = out[0]
-            raw_reward = float(out[1])
-            terminated = out[2] if len(out) > 2 else False
-            truncated = out[3] if len(out) > 3 else False
-            info = out[4] if len(out) > 4 else {}
-            reward = reward_fn(raw_reward)
-            return obs, reward, terminated, truncated, info
-
-        def render(self):
-            return self.env.render()
-    return GymnasiumWrapper
+# FeatureEnrichedEnv is imported from feature_env.py and used directly.
 
 
 def sanitize_ohlcv(df):
@@ -147,7 +119,6 @@ def full_retrain(model_dir=None, strategies=None):
         model_dir = os.path.dirname(__file__)
 
     reward_fns = {s: get_reward_function(s) for s in strategies}
-    Wrappers = {s: make_gymnasium_wrapper(reward_fns[s]) for s in strategies}
     models = {s: None for s in strategies}
     trained_counts = {s: 0 for s in strategies}
 
@@ -157,20 +128,28 @@ def full_retrain(model_dir=None, strategies=None):
         print(f"\n[{i+1}/{len(DOW_30)}] Processing {ticker}...")
 
         try:
-            df = _download_yf_with_retries(ticker, start='2015-01-01', end='2024-01-01')
+            df = _download_yf_with_retries(ticker, start='2018-01-01', end=None)
             df, err = sanitize_ohlcv(df)
             if err or len(df) < 100:
                 print(f"Skipping {ticker}: insufficient data")
                 continue
 
             for s in strategies:
-                env = DummyVecEnv([lambda d=df, W=Wrappers[s]: W(d)])
+                env = DummyVecEnv([lambda d=df, fn=reward_fns[s]: FeatureEnrichedEnv(d, reward_fn=fn)])
                 if models[s] is None:
                     print(f"  Initializing new PPO Agent ({s})...")
-                    models[s] = PPO('MlpPolicy', env, verbose=0)
+                    models[s] = PPO(
+                        'MlpPolicy', env,
+                        learning_rate=1e-4,
+                        n_steps=1024,
+                        batch_size=64,
+                        gamma=0.95,
+                        ent_coef=0.01,
+                        verbose=0,
+                    )
                 else:
                     models[s].set_env(env)
-                models[s].learn(total_timesteps=5000)
+                models[s].learn(total_timesteps=50_000)
                 trained_counts[s] += 1
 
         except Exception as e:

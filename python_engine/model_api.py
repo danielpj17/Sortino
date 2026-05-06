@@ -21,9 +21,8 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
-from gym_anytrading.envs import StocksEnv
-import gymnasium as gym
 from dotenv import load_dotenv
+from feature_env import FeatureEnrichedEnv
 
 # region agent log
 def _debug_log(location: str, message: str, data: dict, hypothesis_id: str = "A"):
@@ -67,31 +66,6 @@ STRATEGY_NAME_TO_KEY = {
     "Upside Model": "upside",
 }
 
-
-class GymnasiumWrapper(gym.Env):
-    def __init__(self, df):
-        super().__init__()
-        self.env = StocksEnv(df=df, window_size=10, frame_bound=(10, len(df)))
-        self.action_space = self.env.action_space
-        self.observation_space = self.env.observation_space
-
-    def reset(self, seed=None, options=None):
-        obs = self.env.reset()
-        if isinstance(obs, tuple):
-            obs = obs[0]
-        return obs, {}
-
-    def step(self, action):
-        out = self.env.step(action)
-        obs = out[0]
-        reward = out[1]
-        term = out[2] if len(out) > 2 else False
-        trunc = out[3] if len(out) > 3 else False
-        info = out[4] if len(out) > 4 else {}
-        return obs, reward, term, trunc, info
-
-    def render(self):
-        return self.env.render()
 
 
 def sanitize_ohlcv(df):
@@ -315,14 +289,14 @@ def predict():
         # region agent log
         _debug_log("model_api.py:predict", "after_sanitize", {"df_len": len(df) if df is not None else 0, "err": err}, "H2")
         # endregion
-        if err or df is None or len(df) < 15:
+        if err or df is None or len(df) < 25:
             return jsonify({"error": "insufficient or invalid data"}), 400
 
         df = df.reset_index(drop=True)
         # region agent log
         _debug_log("model_api.py:predict", "before_env", {"df_len": len(df)}, "H3")
         # endregion
-        env = DummyVecEnv([lambda d=df: GymnasiumWrapper(d)])
+        env = DummyVecEnv([lambda d=df: FeatureEnrichedEnv(d)])
         raw_obs = env.reset()
         obs = raw_obs[0] if isinstance(raw_obs, (list, tuple)) else raw_obs
         if not isinstance(obs, np.ndarray):
@@ -370,10 +344,8 @@ def predict():
             print(f"Could not get action probabilities: {e}")
             traceback.print_exc()
 
-        # Fallback: derive from action_code when probability extraction fails
-        if buy_prob is None or sell_prob is None:
-            buy_prob = 0.6 if action_code == 1 else 0.4
-            sell_prob = 0.4 if action_code == 1 else 0.6
+        # If probability extraction failed, signal the caller to skip rather than fabricating values
+        prob_extraction_failed = buy_prob is None or sell_prob is None
 
         # region agent log
         _debug_log("model_api.py:predict", "before_price_block", {"df_len": len(df)}, "H5")
@@ -389,7 +361,7 @@ def predict():
         # region agent log
         _debug_log("model_api.py:predict", "predict_success", {"ticker": ticker, "action": action_type}, "H5")
         # endregion
-        return jsonify({
+        response = {
             "ticker": ticker,
             "action": action_type,
             "action_code": action_code,
@@ -399,7 +371,10 @@ def predict():
             "price_change_10d_pct": round(price_change_pct, 2),
             "volatility_10d": round(volatility, 2),
             "data_points": len(df),
-        })
+        }
+        if prob_extraction_failed:
+            response["probability_extraction_failed"] = True
+        return jsonify(response)
     except Exception as e:
         # region agent log
         _tb = traceback.format_exc()

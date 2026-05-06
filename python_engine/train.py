@@ -5,10 +5,9 @@ import numpy as np
 import pandas as pd
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
-from gym_anytrading.envs import StocksEnv
-import gymnasium as gym
 from dotenv import load_dotenv
 from model_manager import save_model_version, get_reward_function
+from feature_env import FeatureEnrichedEnv
 
 # Load environment variables
 _load_dirs = [
@@ -25,42 +24,13 @@ else:
 
 NEON_DATABASE_URL = os.getenv("DATABASE_URL")
 
-# --- CUSTOM WRAPPER ---
-# Gymnasium compatibility + strategy-specific reward (from model_manager).
-def make_gymnasium_wrapper(reward_fn):
-    """Factory for GymnasiumWrapper with the given reward function."""
-    class GymnasiumWrapper(gym.Env):
-        def __init__(self, df):
-            super().__init__()
-            self.env = StocksEnv(df=df, window_size=10, frame_bound=(10, len(df)))
-            self.action_space = self.env.action_space
-            self.observation_space = self.env.observation_space
-
-        def reset(self, seed=None, options=None):
-            obs = self.env.reset()
-            if isinstance(obs, tuple):
-                obs = obs[0]
-            return obs, {}
-
-        def step(self, action):
-            out = self.env.step(action)
-            obs = out[0]
-            raw_reward = float(out[1])
-            terminated = out[2] if len(out) > 2 else False
-            truncated = out[3] if len(out) > 3 else False
-            info = out[4] if len(out) > 4 else {}
-            reward = reward_fn(raw_reward)
-            return obs, reward, terminated, truncated, info
-
-        def render(self):
-            return self.env.render()
-    return GymnasiumWrapper
+# FeatureEnrichedEnv is imported from feature_env.py and used directly.
 
 # The Dow Jones Industrial Average (Dow 30) - WBA removed
 DOW_30 = [
     'AXP', 'AMGN', 'AAPL', 'BA', 'CAT', 'CSCO', 'CVX', 'GS', 'HD', 'HON',
     'IBM', 'INTC', 'JNJ', 'KO', 'JPM', 'MCD', 'MMM', 'MRK', 'MSFT', 'NKE',
-    'PG', 'TRV', 'UNH', 'CRM', 'VZ', 'V', 'WMT', 'DIS', 'DOW'
+    'NVDA', 'PG', 'TRV', 'UNH', 'CRM', 'VZ', 'V', 'WMT', 'DIS', 'DOW'
 ]
 
 def train_model(strategy: str = "sortino"):
@@ -75,7 +45,7 @@ def train_model(strategy: str = "sortino"):
         
         try:
             # 1. Download Data
-            df = yf.download(ticker, start='2015-01-01', end='2024-01-01', progress=False)
+            df = yf.download(ticker, start='2018-01-01', end=None, progress=False)
             
             # --- DATA SANITIZATION ---
             if isinstance(df.columns, pd.MultiIndex):
@@ -88,19 +58,26 @@ def train_model(strategy: str = "sortino"):
                 print(f"Skipping {ticker}: Not enough data (Rows: {len(df)}).")
                 continue
 
-            # 2. Create Environment using our Custom Wrapper (capture df by value)
-            GymnasiumWrapper = make_gymnasium_wrapper(reward_fn)
-            env = DummyVecEnv([lambda d=df: GymnasiumWrapper(d)])
+            # 2. Create environment with technical indicators and strategy reward
+            env = DummyVecEnv([lambda d=df, fn=reward_fn: FeatureEnrichedEnv(d, reward_fn=fn)])
 
             # 3. Initialize or Update Model
             if model is None:
                 print("Initializing new PPO Agent...")
-                model = PPO('MlpPolicy', env, verbose=0)
+                model = PPO(
+                    'MlpPolicy', env,
+                    learning_rate=1e-4,
+                    n_steps=1024,
+                    batch_size=64,
+                    gamma=0.95,
+                    ent_coef=0.01,
+                    verbose=0,
+                )
             else:
                 model.set_env(env)
 
             # 4. Train
-            model.learn(total_timesteps=5000)
+            model.learn(total_timesteps=50_000)
             
         except Exception as e:
             print(f"Error training on {ticker}: {e}")
@@ -119,7 +96,7 @@ def train_model(strategy: str = "sortino"):
                     NEON_DATABASE_URL,
                     training_type="initial",
                     total_experiences=0,
-                    notes=f"Initial training on historical data (2015-2024), strategy={strategy}",
+                    notes=f"Initial training on historical data (2018-present), strategy={strategy}",
                     strategy=strategy
                 )
                 if version:
