@@ -23,21 +23,22 @@ else:
     load_dotenv()
 
 # Sortino reward calculation (must match train.py)
-DOWNSIDE_PENALTY_FACTOR = 2.0
+DOWNSIDE_PENALTY_FACTOR = 1.5  # Reduced from 2.0 — less extreme risk-aversion, more trading activity
 DOWNSIDE_SQUARED = True
+GAIN_AMPLIFIER = 1.1  # Slight positive bias to encourage profitable trades
 OPPORTUNITY_COST_PENALTY = -0.001  # Penalty for staying flat/in cash
 
 def _sortino_reward(raw_reward: float) -> float:
-    """Apply Sortino principle: heavy penalty for negative returns and opportunity cost for staying flat."""
+    """Apply Sortino principle: penalty for negative returns and opportunity cost for staying flat."""
     # Opportunity cost: penalize staying in cash (raw_reward === 0.0)
     if raw_reward == 0.0:
         return OPPORTUNITY_COST_PENALTY
-    
-    # Positive rewards unchanged
+
+    # Positive rewards: small amplifier to encourage profitable trades
     if raw_reward > 0:
-        return raw_reward
-    
-    # Negative rewards: apply downside penalty
+        return raw_reward * GAIN_AMPLIFIER
+
+    # Negative rewards: apply downside penalty (quadratic, but less severe than before)
     mag = abs(raw_reward)
     if DOWNSIDE_SQUARED:
         return -(DOWNSIDE_PENALTY_FACTOR * (mag ** 2))

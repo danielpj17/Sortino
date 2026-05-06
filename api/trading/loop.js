@@ -9,7 +9,7 @@ import { getDecryptedAccount } from '../../lib/account-credentials.js';
 const DOW_30 = [
   'AXP', 'AMGN', 'AAPL', 'BA', 'CAT', 'CSCO', 'CVX', 'GS', 'HD', 'HON',
   'IBM', 'INTC', 'JNJ', 'KO', 'JPM', 'MCD', 'MMM', 'MRK', 'MSFT', 'NKE',
-  'PG', 'TRV', 'UNH', 'CRM', 'VZ', 'V', 'WMT', 'DIS', 'DOW',
+  'NVDA', 'PG', 'TRV', 'UNH', 'CRM', 'VZ', 'V', 'WMT', 'DIS', 'DOW',
 ];
 
 const MODEL_API_URL = process.env.MODEL_API_URL || 'http://localhost:5000';
@@ -309,11 +309,31 @@ async function submitOrder(apiKey, secretKey, baseUrl, { symbol, qty, side, type
 
 async function insertTrade(pool, { ticker, action, price, quantity, account_id, company_name = ticker, strategyName }) {
   const strategyLabel = strategyName || "Sortino Model";
-  await pool.query(
+  const result = await pool.query(
     `INSERT INTO trades (ticker, action, price, quantity, strategy, pnl, account_id, company_name)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
     [ticker, action, price, quantity, strategyLabel, 0.0, account_id, company_name]
   );
+  return result.rows[0].id;
+}
+
+async function computeAndSavePnl(pool, { ticker, account_id, sellPrice, sellQty, sellTradeId }) {
+  try {
+    const res = await pool.query(
+      `SELECT id, price FROM trades
+       WHERE ticker = $1 AND account_id = $2 AND action = 'BUY'
+         AND (sell_trade_id IS NULL OR sell_trade_id = 0)
+       ORDER BY timestamp DESC LIMIT 1`,
+      [ticker, account_id]
+    );
+    if (!res.rows.length) return;
+    const { id: buyId, price: buyPrice } = res.rows[0];
+    const pnl = (sellPrice - parseFloat(buyPrice)) * sellQty;
+    await pool.query(`UPDATE trades SET pnl = $1, sell_trade_id = $2 WHERE id = $3`, [pnl, sellTradeId, buyId]);
+    await pool.query(`UPDATE trades SET pnl = $1 WHERE id = $2`, [pnl, sellTradeId]);
+  } catch (e) {
+    console.warn(`[loop] PnL computation failed for ${ticker}:`, e.message);
+  }
 }
 
 /**
@@ -451,18 +471,36 @@ export async function executeTradingLoop(accountId) {
   let batchStart = 0;
   
   try {
-    // Try to get batch position from metadata column
+    // Load both batch position and persisted rolling windows in one query
     const batchResult = await pool.query(
-      `SELECT COALESCE((metadata->>'batch_start')::int, NULL) as batch_start
-       FROM bot_state 
+      `SELECT COALESCE((metadata->>'batch_start')::int, NULL) as batch_start,
+              metadata->>'rolling_windows' AS rolling_windows
+       FROM bot_state
        WHERE account_id = $1`,
       [accountId]
     );
-    if (batchResult.rows.length > 0 && batchResult.rows[0].batch_start !== null) {
-      batchStart = batchResult.rows[0].batch_start;
+    if (batchResult.rows.length > 0) {
+      const row = batchResult.rows[0];
+      if (row.batch_start !== null) {
+        batchStart = row.batch_start;
+      } else {
+        const minutesSinceEpoch = Math.floor(Date.now() / 60000);
+        batchStart = (minutesSinceEpoch * BATCH_SIZE) % DOW_30.length;
+      }
+      // Hydrate rolling windows from DB (survive process restarts)
+      if (row.rolling_windows) {
+        try {
+          const stored = JSON.parse(row.rolling_windows);
+          for (const [key, value] of Object.entries(stored)) {
+            if (!rollingWindows.has(key)) {
+              rollingWindows.set(key, value);
+            }
+          }
+        } catch (_parseErr) {
+          // Non-fatal: rolling window rebuilds from scratch
+        }
+      }
     } else {
-      // Fallback: use time-based rotation (changes every minute)
-      // This ensures different tickers are processed over time even without metadata column
       const minutesSinceEpoch = Math.floor(Date.now() / 60000);
       batchStart = (minutesSinceEpoch * BATCH_SIZE) % DOW_30.length;
     }
@@ -503,6 +541,11 @@ export async function executeTradingLoop(accountId) {
         fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:177',message:'Model prediction failed',data:{accountId,ticker,reason,predError:pred?.error,modelApiUrl:MODEL_API_URL,isLocalhost:MODEL_API_URL.includes('localhost')},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
         // #endregion
         results.push({ ticker, status: 'skip', reason: 'no_prediction' });
+        continue;
+      }
+
+      if (pred.probability_extraction_failed) {
+        results.push({ ticker, status: 'skip', reason: 'prob_extraction_failed' });
         continue;
       }
 
@@ -710,7 +753,7 @@ export async function executeTradingLoop(accountId) {
               type: 'market',
               time_in_force: 'gtc',
             });
-            await insertTrade(pool, {
+            const sellTradeId = await insertTrade(pool, {
               ticker,
               action: 'SELL',
               price,
@@ -718,6 +761,7 @@ export async function executeTradingLoop(accountId) {
               account_id: accountId,
               strategyName,
             });
+            await computeAndSavePnl(pool, { ticker, account_id: accountId, sellPrice: price, sellQty: closeQty, sellTradeId });
             // #region agent log
             fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:246',message:'Trade executed: closed long',data:{accountId,ticker,qty:closeQty},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
             // #endregion
@@ -799,16 +843,19 @@ export async function executeTradingLoop(accountId) {
     // Update bot_state with next batch start and heartbeat
     // Try to update with metadata column (if it exists)
     try {
-      // First check if metadata column exists by attempting to update it
+      // Persist batch position and rolling window state so they survive process restarts
+      const windowsJson = JSON.stringify(Object.fromEntries(rollingWindows.entries()));
       await pool.query(
-        `UPDATE bot_state 
-         SET last_heartbeat = NOW(), 
-             last_error = NULL, 
+        `UPDATE bot_state
+         SET last_heartbeat = NOW(),
+             last_error = NULL,
              updated_at = NOW(),
-             metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('batch_start', $2)
-         WHERE account_id = $1 
+             metadata = COALESCE(metadata, '{}'::jsonb)
+               || jsonb_build_object('batch_start', $2)
+               || jsonb_build_object('rolling_windows', $3::text)
+         WHERE account_id = $1
          AND account_id IN (SELECT id FROM accounts)`,
-        [accountId, nextBatchStart]
+        [accountId, nextBatchStart, windowsJson]
       );
     } catch (metadataErr) {
       // If metadata column doesn't exist, update without it
