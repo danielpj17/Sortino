@@ -16,10 +16,9 @@ import pandas as pd
 import numpy as np
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
-from gym_anytrading.envs import StocksEnv
-import gymnasium as gym
 from dotenv import load_dotenv
 from model_manager import get_latest_model, get_active_version_rows
+from feature_env import FeatureEnrichedEnv
 
 # Load env from project root and python_engine
 _load_dirs = [
@@ -61,7 +60,7 @@ def debug_log(location: str, message: str, data: dict) -> None:
 DOW_30 = [
     "AXP", "AMGN", "AAPL", "BA", "CAT", "CSCO", "CVX", "GS", "HD", "HON",
     "IBM", "INTC", "JNJ", "KO", "JPM", "MCD", "MMM", "MRK", "MSFT", "NKE",
-    "PG", "TRV", "UNH", "CRM", "VZ", "V", "WMT", "DIS", "DOW",
+    "NVDA", "PG", "TRV", "UNH", "CRM", "VZ", "V", "WMT", "DIS", "DOW",
 ]
 
 REQUIRED_COLS = ["Open", "High", "Low", "Close", "Volume"]
@@ -71,27 +70,7 @@ STRATEGY_NAME = "Dow30-Swing-Sortino"
 MODEL_RELOAD_INTERVAL = 3600  # Reload model every hour to check for updates
 
 
-# --- Env wrapper (must match train.py observation/action shape) ---
-class GymnasiumWrapper(gym.Env):
-    def __init__(self, df):
-        super().__init__()
-        self.env = StocksEnv(df=df, window_size=10, frame_bound=(10, len(df)))
-        self.action_space = self.env.action_space
-        self.observation_space = self.env.observation_space
-
-    def reset(self, seed=None, options=None):
-        obs = self.env.reset()
-        if isinstance(obs, tuple):
-            obs = obs[0]
-        return obs, {}
-
-    def step(self, action):
-        out = self.env.step(action)
-        obs, reward = out[0], out[1]
-        term = out[2] if len(out) > 2 else False
-        trunc = out[3] if len(out) > 3 else False
-        info = out[4] if len(out) > 4 else {}
-        return obs, reward, term, trunc, info
+# FeatureEnrichedEnv is imported from feature_env.py (matches train.py observation shape).
 
 
 def get_db():
@@ -198,15 +177,12 @@ def run_analysis_cycle(model, conn, accounts):
             if err is not None:
                 print(f"Skipping {ticker}: missing columns {err}")
                 continue
-            if len(df) < 15:
+            if len(df) < 25:
                 print(f"Skipping {ticker}: insufficient data ({len(df)} rows)")
                 continue
             df = df.reset_index(drop=True)
 
-            def make_env():
-                return GymnasiumWrapper(df)
-
-            env = DummyVecEnv([make_env])
+            env = DummyVecEnv([lambda d=df: FeatureEnrichedEnv(d)])
             raw = env.reset()
             obs = raw[0] if isinstance(raw, (list, tuple)) else raw
             if not isinstance(obs, np.ndarray):
