@@ -6,7 +6,7 @@ REM OPTIONAL: Activate Virtual Env (Uncomment the line below if you use one)
 REM call venv\Scripts\activate
 
 echo Starting Retraining...
-py retrain.py
+py retrain.py --strategy both
 
 REM Check for errors. If it fails, keep window open so you can see why.
 IF %ERRORLEVEL% NEQ 0 (
