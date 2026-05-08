@@ -10,7 +10,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "start": "NODE_ENV=production node server.js",
-    "start:win": "set NODE_ENV=production && node server.js"
+    "start:win": "set NODE_ENV=production && node server.js",
+    "icons": "node scripts/create-icons.mjs"
   },
   "dependencies": {
     "cors": "^2.8.5",
@@ -27,6 +28,7 @@
     "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^5.0.0",
     "concurrently": "^9.2.1",
+    "sharp": "^0.34.5",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
   }
