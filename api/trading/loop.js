@@ -211,7 +211,7 @@ async function getModelPrediction(ticker, strategyKey) {
     const res = await fetch(requestUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ticker, period: '1mo', strategy: strategyKey || 'sortino' }),
+      body: JSON.stringify({ ticker, period: '3mo', strategy: strategyKey || 'sortino' }),
       signal: controller.signal,
     });
     const duration = Date.now() - startTime;
