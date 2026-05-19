@@ -23,25 +23,25 @@ else:
     load_dotenv()
 
 # Sortino reward calculation (must match train.py)
-DOWNSIDE_PENALTY_FACTOR = 1.5  # Reduced from 2.0 — less extreme risk-aversion, more trading activity
-DOWNSIDE_SQUARED = True
+DOWNSIDE_PENALTY_FACTOR = 1.5  # Loss multiplier: makes losses 1.36x more painful than same-sized gains
 GAIN_AMPLIFIER = 1.1  # Slight positive bias to encourage profitable trades
-OPPORTUNITY_COST_PENALTY = -0.001  # Penalty for staying flat/in cash
+OPPORTUNITY_COST_PENALTY = -0.0001  # Small inactivity penalty — must be less costly than a real loss
 
 def _sortino_reward(raw_reward: float) -> float:
-    """Apply Sortino principle: penalty for negative returns and opportunity cost for staying flat."""
-    # Opportunity cost: penalize staying in cash (raw_reward === 0.0)
+    """Apply Sortino principle: losses are penalized more than same-sized gains are rewarded.
+
+    Uses linear scaling so the asymmetry holds across typical daily return ranges (0.5%–5%).
+    A 1% loss costs -0.015 while a 1% gain earns +0.011, making losses 1.36x more painful.
+    Previously used quadratic penalty which inverted this: at 1% move, gains were 73x larger
+    than losses in training signal, causing the model to treat losses as nearly irrelevant.
+    """
     if raw_reward == 0.0:
         return OPPORTUNITY_COST_PENALTY
 
-    # Positive rewards: small amplifier to encourage profitable trades
     if raw_reward > 0:
         return raw_reward * GAIN_AMPLIFIER
 
-    # Negative rewards: apply downside penalty (quadratic, but less severe than before)
-    mag = abs(raw_reward)
-    if DOWNSIDE_SQUARED:
-        return -(DOWNSIDE_PENALTY_FACTOR * (mag ** 2))
+    # Linear downside penalty: preserves sign, scales by factor
     return raw_reward * DOWNSIDE_PENALTY_FACTOR
 
 
