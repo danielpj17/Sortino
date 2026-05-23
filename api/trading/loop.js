@@ -21,10 +21,10 @@ const STRATEGY_NAME_TO_KEY = {
 };
 
 // Decision Layer Smoothing Constants
-const ROLLING_WINDOW_SIZE = 5;   // Number of predictions to average
-const CONFIDENCE_THRESHOLD = 0.52;  // Minimum probability to execute — filters weak signals
+const ROLLING_WINDOW_SIZE = 3;   // Number of predictions to average (smaller window = faster reaction)
+const CONFIDENCE_THRESHOLD = 0.51;  // Minimum probability to execute — 1% edge filters pure noise
 const DEAD_ZONE_LOW = 0.30;   // Lower bound of dead zone
-const DEAD_ZONE_HIGH = 0.52;  // Upper bound of dead zone (matches CONFIDENCE_THRESHOLD)
+const DEAD_ZONE_HIGH = 0.51;  // Upper bound of dead zone (matches CONFIDENCE_THRESHOLD)
 const STOP_LOSS_PCT = 0.05;   // Force-sell if position is down more than 5% from entry
 
 // Rolling window storage: Map<ticker, {buyProbs: number[], sellProbs: number[]}>
