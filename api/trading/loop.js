@@ -20,12 +20,12 @@ const STRATEGY_NAME_TO_KEY = {
   "Upside Model": "upside",
 };
 
-// Decision Layer Smoothing Constants (loosened to allow more trades)
-const ROLLING_WINDOW_SIZE = 5;   // Number of predictions to average (reduced from 10 for faster response)
-const CONFIDENCE_THRESHOLD = 0.45;  // Minimum probability to execute (lowered from 0.55 for more trades)
+// Decision Layer Smoothing Constants
+const ROLLING_WINDOW_SIZE = 3;   // Number of predictions to average (smaller window = faster reaction)
+const CONFIDENCE_THRESHOLD = 0.51;  // Minimum probability to execute — 1% edge filters pure noise
 const DEAD_ZONE_LOW = 0.30;   // Lower bound of dead zone
-const DEAD_ZONE_HIGH = 0.45;  // Upper bound of dead zone (matches CONFIDENCE_THRESHOLD)
-const BUY_BIAS_THRESHOLD = 0.08;  // 8% difference threshold - favor BUY when probs are close
+const DEAD_ZONE_HIGH = 0.51;  // Upper bound of dead zone (matches CONFIDENCE_THRESHOLD)
+const STOP_LOSS_PCT = 0.05;   // Force-sell if position is down more than 5% from entry
 
 // Rolling window storage: Map<ticker, {buyProbs: number[], sellProbs: number[]}>
 const rollingWindows = new Map();
@@ -155,37 +155,19 @@ function applyDecisionSmoothing(ticker, rawBuyProb, rawSellProb, hasPosition, st
   // Check if probabilities are in dead zone
   const buyInDeadZone = smoothedBuyProb >= DEAD_ZONE_LOW && smoothedBuyProb <= DEAD_ZONE_HIGH;
   const sellInDeadZone = smoothedSellProb >= DEAD_ZONE_LOW && smoothedSellProb <= DEAD_ZONE_HIGH;
-  
-  // Apply buy bias: if probabilities are within 5% of each other, favor BUY
-  const probDiff = Math.abs(smoothedBuyProb - smoothedSellProb);
-  const shouldApplyBuyBias = probDiff <= BUY_BIAS_THRESHOLD;
-  
-  // Decision logic with hysteresis thresholds
+
+  // Decision logic: symmetric — higher confident probability wins, no built-in long bias
   let action = 'HOLD';
-  let actionCode = 0; // 0 = HOLD/SELL, 1 = BUY
-  
-  // BUY: Only if rolling avg buy_prob > CONFIDENCE_THRESHOLD
-  if (smoothedBuyProb > CONFIDENCE_THRESHOLD) {
-    // Apply buy bias if probabilities are close
-    if (shouldApplyBuyBias || smoothedBuyProb > smoothedSellProb) {
-      action = 'BUY';
-      actionCode = 1;
-    }
-  }
-  
-  // SELL: Only if rolling avg sell_prob > CONFIDENCE_THRESHOLD AND we hold a long position
-  if (smoothedSellProb > CONFIDENCE_THRESHOLD && hasPosition) {
-    // Only override BUY if sell probability is significantly higher
-    if (smoothedSellProb > smoothedBuyProb + BUY_BIAS_THRESHOLD) {
-      action = 'SELL';
-      actionCode = 0;
-    }
-  }
-  
-  // If both are in dead zone, default to HOLD (maintain current position)
+  let actionCode = 0;
+
   if (buyInDeadZone && sellInDeadZone) {
-    action = 'HOLD';
-    actionCode = hasPosition ? 0 : 0; // Keep current position
+    // Both uncertain — hold current position
+  } else if (smoothedBuyProb > CONFIDENCE_THRESHOLD && smoothedBuyProb >= smoothedSellProb) {
+    action = 'BUY';
+    actionCode = 1;
+  } else if (smoothedSellProb > CONFIDENCE_THRESHOLD && smoothedSellProb > smoothedBuyProb) {
+    action = 'SELL';
+    actionCode = 0;
   }
   
   return {
@@ -553,6 +535,28 @@ export async function executeTradingLoop(accountId) {
       const pos = await getPosition(acc.api_key, acc.secret_key, baseUrl, ticker);
       const side = pos ? String(pos.side).toLowerCase() : null;
       const hasPosition = side === 'long';
+
+      // Stop-loss: force exit if long position is down more than STOP_LOSS_PCT from entry
+      if (hasPosition && pos.avg_entry_price) {
+        const entryPrice = parseFloat(pos.avg_entry_price);
+        const currentPrice = parseFloat(pos.current_price || pred.price);
+        if (entryPrice > 0 && currentPrice < entryPrice * (1 - STOP_LOSS_PCT)) {
+          const closeQty = Math.abs(parseInt(pos.qty, 10));
+          if (closeQty > 0) {
+            await submitOrder(acc.api_key, acc.secret_key, baseUrl, {
+              symbol: ticker, qty: closeQty, side: 'sell', type: 'market', time_in_force: 'day',
+            });
+            const sellTradeId = await insertTrade(pool, {
+              ticker, action: 'SELL', price: currentPrice, quantity: closeQty,
+              account_id: accountId, strategyName,
+            });
+            await computeAndSavePnl(pool, { ticker, account_id: accountId, sellPrice: currentPrice, sellQty: closeQty, sellTradeId });
+            remainingBuyingPower += currentPrice * closeQty;
+            results.push({ ticker, action: 'SELL', qty: closeQty, status: 'stop_loss' });
+            continue;
+          }
+        }
+      }
 
       // Apply decision layer smoothing
       const rawBuyProb = pred.buy_probability || 0;
