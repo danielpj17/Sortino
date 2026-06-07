@@ -44,6 +44,7 @@ export default async function handler(req, res) {
       if (cachedEntry && (now - cachedEntry.timestamp) < CACHE_TTL) {
         cached[ticker] = cachedEntry.price;
       } else {
+        priceCache.delete(ticker);
         toFetch.push(ticker);
       }
     }
