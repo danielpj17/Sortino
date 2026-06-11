@@ -30,6 +30,16 @@ const STOP_LOSS_PCT = 0.05;   // Force-sell if position is down more than 5% fro
 // Rolling window storage: Map<ticker, {buyProbs: number[], sellProbs: number[]}>
 const rollingWindows = new Map();
 
+// In production, short-circuit agent log fetch calls so they don't create
+// hundreds of failed TCP connections and body buffers per loop run.
+if (process.env.NODE_ENV === 'production') {
+  const _realFetch = globalThis.fetch;
+  globalThis.fetch = (url, ...args) => {
+    if (typeof url === 'string' && url.startsWith('http://127.0.0.1:7246')) return Promise.resolve(null);
+    return _realFetch(url, ...args);
+  };
+}
+
 // #region agent log
 fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:16',message:'MODEL_API_URL initialized',data:{modelApiUrl:MODEL_API_URL,envVarSet:!!process.env.MODEL_API_URL,isLocalhost:MODEL_API_URL.includes('localhost')},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
 // #endregion
