@@ -187,7 +187,7 @@ async function getModelPrediction(ticker, strategyKey) {
   try {
     // Add timeout to prevent hanging (10 seconds max per prediction)
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
     
     const startTime = Date.now();
     const res = await fetch(requestUrl, {
@@ -221,7 +221,7 @@ async function getModelPrediction(ticker, strategyKey) {
     fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:100',message:'Model API error caught',data:{ticker,errorName:e.name,errorMessage:e.message,errorStack:e.stack?.substring(0,200),modelApiUrl:MODEL_API_URL,requestUrl,isTimeout:e.name==='AbortError',isNetworkError:e.message?.includes('fetch')||e.message?.includes('network')||e.message?.includes('ECONNREFUSED')||e.message?.includes('ENOTFOUND')},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
     // #endregion
     if (e.name === 'AbortError') {
-      console.error(`Model prediction ${ticker}: Timeout after 10 seconds`);
+      console.error(`Model prediction ${ticker}: Timeout after 5 seconds`);
     } else {
       console.error(`Model prediction ${ticker}:`, e.message);
     }
@@ -561,44 +561,12 @@ export async function executeTradingLoop(accountId) {
       // Apply decision layer smoothing
       const rawBuyProb = pred.buy_probability || 0;
       const rawSellProb = pred.sell_probability || 0;
-      const smoothed = applyDecisionSmoothing(ticker, rawBuyProb, rawSellProb, hasPosition);
+      const smoothed = applyDecisionSmoothing(ticker, rawBuyProb, rawSellProb, hasPosition, strategyKey);
       
       // Use smoothed decision instead of raw prediction
       const actionType = smoothed.action;
       const finalActionCode = smoothed.actionCode;
 
-      // Store prediction in database for analysis (optional - table may not exist)
-      try {
-        await pool.query(
-          `INSERT INTO model_predictions 
-           (ticker, account_id, action_code, action_type, price, buy_probability, sell_probability, 
-            price_change_10d_pct, volatility_10d, data_points,
-            smoothed_buy_probability, smoothed_sell_probability, final_action_code)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
-          [
-            ticker,
-            accountId,
-            pred.action_code,  // Raw action code
-            pred.action,  // Raw action type
-            pred.price,
-            pred.buy_probability || null,  // Raw buy probability
-            pred.sell_probability || null,  // Raw sell probability
-            pred.price_change_10d_pct || null,
-            pred.volatility_10d || null,
-            pred.data_points || null,
-            smoothed.smoothedBuyProb,  // Smoothed buy probability
-            smoothed.smoothedSellProb,  // Smoothed sell probability
-            finalActionCode  // Final action code after smoothing
-          ]
-        );
-      } catch (predErr) {
-        // If table doesn't exist or query fails, log but continue (don't crash)
-        // This is optional functionality for analysis
-        if (predErr.message && !predErr.message.includes('relation "model_predictions" does not exist')) {
-          console.warn(`[loop] Could not store prediction for ${ticker}:`, predErr.message);
-        }
-        // Silently ignore if table doesn't exist - it's optional
-      }
       const price = parseFloat(pred.price);
       if (!price || price <= 0) {
         results.push({ ticker, status: 'skip', reason: 'invalid_price' });
@@ -629,12 +597,6 @@ export async function executeTradingLoop(accountId) {
         // #region agent log
         fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:hold',message:'HOLD action: maintaining position',data:{accountId,ticker,hasPosition,side},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
         // #endregion
-        // Update prediction record with skip reason (optional - table may not exist)
-        try {
-          await pool.query('UPDATE model_predictions SET skip_reason = $1 WHERE ticker = $2 AND account_id = $3 AND timestamp > NOW() - INTERVAL \'1 minute\' ORDER BY timestamp DESC LIMIT 1', ['hold_action', ticker, accountId]);
-        } catch (updateErr) {
-          // Silently ignore - table may not exist, this is optional
-        }
         results.push({ ticker, action: 'HOLD', status: 'skip', reason: 'hold_action' });
         continue;
       }
@@ -648,9 +610,6 @@ export async function executeTradingLoop(accountId) {
               // #region agent log
               fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:buy_cover',message:'Skipped: insufficient buying power to cover short',data:{accountId,ticker,closeQty,price,coverCost,remainingBuyingPower},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
               // #endregion
-              try {
-                await pool.query('UPDATE model_predictions SET skip_reason = $1 WHERE ticker = $2 AND account_id = $3 AND timestamp > NOW() - INTERVAL \'1 minute\' ORDER BY timestamp DESC LIMIT 1', ['insufficient_cash', ticker, accountId]);
-              } catch (updateErr) {}
               results.push({ ticker, action: 'BUY', status: 'skip', reason: 'insufficient_cash' });
               continue;
             }
@@ -676,26 +635,11 @@ export async function executeTradingLoop(accountId) {
             // #region agent log
             fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:207',message:'Trade executed: covered short',data:{accountId,ticker,qty:closeQty},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
             // #endregion
-            // Update prediction record with trade execution (optional - table may not exist)
-            try {
-              const tradeResult = await pool.query('SELECT id FROM trades WHERE ticker = $1 AND account_id = $2 ORDER BY timestamp DESC LIMIT 1', [ticker, accountId]);
-              if (tradeResult.rows.length > 0) {
-                await pool.query('UPDATE model_predictions SET was_executed = TRUE, trade_id = $1, skip_reason = NULL WHERE ticker = $2 AND account_id = $3 AND timestamp > NOW() - INTERVAL \'1 minute\' ORDER BY timestamp DESC LIMIT 1', [tradeResult.rows[0].id, ticker, accountId]);
-              }
-            } catch (updateErr) {
-              // Silently ignore - table may not exist, this is optional
-            }
             results.push({ ticker, action: 'BUY', qty: closeQty, status: 'covered_short' });
           } else {
             // #region agent log
             fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:209',message:'Skipped: already long',data:{accountId,ticker},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
             // #endregion
-            // Update prediction record with skip reason (optional - table may not exist)
-            try {
-              await pool.query('UPDATE model_predictions SET skip_reason = $1 WHERE ticker = $2 AND account_id = $3 AND timestamp > NOW() - INTERVAL \'1 minute\' ORDER BY timestamp DESC LIMIT 1', ['already_long', ticker, accountId]);
-            } catch (updateErr) {
-              // Silently ignore - table may not exist, this is optional
-            }
             results.push({ ticker, action: 'BUY', status: 'skip', reason: 'already_long' });
           }
         } else {
@@ -704,9 +648,6 @@ export async function executeTradingLoop(accountId) {
             // #region agent log
             fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:buy_new',message:'Skipped: insufficient buying power for new position',data:{accountId,ticker,qty,price,buyCost,remainingBuyingPower},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
             // #endregion
-            try {
-              await pool.query('UPDATE model_predictions SET skip_reason = $1 WHERE ticker = $2 AND account_id = $3 AND timestamp > NOW() - INTERVAL \'1 minute\' ORDER BY timestamp DESC LIMIT 1', ['insufficient_cash', ticker, accountId]);
-            } catch (updateErr) {}
             results.push({ ticker, action: 'BUY', status: 'skip', reason: 'insufficient_cash' });
             continue;
           }
@@ -732,15 +673,6 @@ export async function executeTradingLoop(accountId) {
           // #region agent log
           fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:226',message:'Trade executed: BUY filled',data:{accountId,ticker,qty},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
           // #endregion
-          // Update prediction record with trade execution (optional - table may not exist)
-          try {
-            const tradeResult = await pool.query('SELECT id FROM trades WHERE ticker = $1 AND account_id = $2 ORDER BY timestamp DESC LIMIT 1', [ticker, accountId]);
-            if (tradeResult.rows.length > 0) {
-              await pool.query('UPDATE model_predictions SET was_executed = TRUE, trade_id = $1, skip_reason = NULL WHERE ticker = $2 AND account_id = $3 AND timestamp > NOW() - INTERVAL \'1 minute\' ORDER BY timestamp DESC LIMIT 1', [tradeResult.rows[0].id, ticker, accountId]);
-            }
-          } catch (updateErr) {
-            // Silently ignore - table may not exist, this is optional
-          }
           results.push({ ticker, action: 'BUY', qty, status: 'filled' });
         }
       } else {
@@ -804,12 +736,6 @@ export async function executeTradingLoop(accountId) {
             // #region agent log
             fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/loop.js:268',message:'Skipped: SELL with no position, shorting disabled',data:{accountId,ticker,allowShorting},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
             // #endregion
-            // Update prediction record with skip reason (optional - table may not exist)
-            try {
-              await pool.query('UPDATE model_predictions SET skip_reason = $1 WHERE ticker = $2 AND account_id = $3 AND timestamp > NOW() - INTERVAL \'1 minute\' ORDER BY timestamp DESC LIMIT 1', ['shorting_disabled', ticker, accountId]);
-            } catch (updateErr) {
-              // Silently ignore - table may not exist, this is optional
-            }
             results.push({ ticker, action: 'SELL', status: 'skip', reason: 'shorting_disabled' });
           }
         }

@@ -8,6 +8,8 @@
 import { getPool } from '../../lib/db.js';
 import { executeTradingLoop } from './loop.js';
 
+const runningAccounts = new Set();
+
 export default async function handler(req, res) {
   try {
     res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -65,6 +67,12 @@ export default async function handler(req, res) {
 
         const results = [];
         for (const { account_id } of rows) {
+          if (runningAccounts.has(account_id)) {
+            console.log(`[trading] Skipping account ${account_id}: loop already running`);
+            results.push({ account_id, status: 'skipped', reason: 'already_running' });
+            continue;
+          }
+          runningAccounts.add(account_id);
           try {
             // #region agent log
             fetch('http://127.0.0.1:7246/ingest/0a8c89bf-f00f-4c2f-93d1-5b6313920c49',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trading/index.js:61',message:'Health-check: executing trading loop',data:{account_id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
@@ -84,6 +92,8 @@ export default async function handler(req, res) {
               status: 'error',
               error: e.message,
             });
+          } finally {
+            runningAccounts.delete(account_id);
           }
         }
 
