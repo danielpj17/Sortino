@@ -1,3 +1,16 @@
+# PyTorch CPU wheels (official PyTorch index).
+#
+# stable-baselines3 pulls in torch. On Linux, torch's default PyPI wheel bundles the
+# full CUDA runtime — the ~3GB of nvidia-*, cuda-toolkit and triton packages visible
+# in the Render build log — which a CPU-only host can never use. It inflates the
+# image and the cold start for nothing.
+#
+# The index below carries "+cpu" builds. Under PEP 440 a local version such as
+# 2.14.0+cpu sorts above plain 2.14.0, so pip prefers it when one exists for the
+# running Python. When none exists, pip falls back to PyPI and installs what it
+# installs today — this line can slow nothing down and cannot fail a build.
+--extra-index-url https://download.pytorch.org/whl/cpu
+
 psycopg2-binary
 alpaca-trade-api
 yfinance
