@@ -1,6 +1,6 @@
 @echo off
 REM --- DAILY RETRAIN & AUTO-DEPLOY SCRIPT ---
-setlocal
+setlocal enabledelayedexpansion
 cd /d "%~dp0"
 
 REM ---------------------------------------------------------------
@@ -70,19 +70,70 @@ IF %ERRORLEVEL% NEQ 0 (
 
 echo Retraining successful. Pushing to GitHub...
 
+REM ---------------------------------------------------------------
+REM 4. Ship the new weights.
+REM    retrain.py has ALREADY written the model_versions row marking the
+REM    new version active. If this push does not land, the database
+REM    advertises a version whose zip exists only on this machine, and the
+REM    Model API silently serves an older model while the dashboard shows
+REM    the new version number. So the push result is checked, not assumed.
+REM ---------------------------------------------------------------
 git add .
 
-REM Commit with today's date
+REM Commit with today's date. "nothing to commit" is not a failure.
 git commit -m "Auto-update: %date%"
+if errorlevel 1 echo (nothing new to commit)
 
 REM Push to GitHub (Triggers Render Deployment)
 REM NOTE: Ensure your branch is 'main'. If 'master', change 'main' to 'master' below.
-git push origin main
+set PUSH_OK=0
+for /L %%i in (1,1,3) do (
+    if "!PUSH_OK!"=="0" (
+        git push origin main
+        if not errorlevel 1 (
+            set PUSH_OK=1
+        ) else (
+            echo Push attempt %%i failed; retrying...
+            timeout /t 5 >nul
+        )
+    )
+)
+
+if "%PUSH_OK%"=="0" goto push_failed
+
+REM Confirm the DB's active versions match zips that actually exist.
+%PYTHON_EXE% reconcile_models.py
+if errorlevel 1 goto reconcile_warn
 
 echo.
 echo SUCCESS! New model pushed. Closing in 5 seconds...
 timeout /t 5
 exit /b 0
+
+:push_failed
+echo.
+echo ================================================================
+echo PUSH FAILED. The database now lists a model version whose weights
+echo were never uploaded. The Model API will keep serving the previous
+echo model while reporting the new version number.
+echo.
+echo Fix the push (most often: run "git pull origin main" first), then
+echo re-run this script. To check the current state:
+echo     %PYTHON_EXE% reconcile_models.py
+echo ================================================================
+pause
+exit /b 1
+
+:reconcile_warn
+echo.
+echo ================================================================
+echo WARNING: model_versions does not match the zips on disk (see above).
+echo The push succeeded, so the files may simply not have been committed.
+echo     %PYTHON_EXE% reconcile_models.py         (report)
+echo     %PYTHON_EXE% reconcile_models.py --fix   (re-point active version)
+echo ================================================================
+pause
+exit /b 1
 
 :no_python
 echo ERROR: No Python interpreter found.
