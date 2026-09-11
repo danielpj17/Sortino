@@ -173,3 +173,56 @@ python scheduler.py
 - Check database connection
 - Verify environment variables are loaded
 - Run script manually with verbose output
+
+### `ModuleNotFoundError: No module named 'psycopg2'` (or any other package):
+
+The script is running under a Python interpreter that does not have the
+dependencies installed. This is almost always an interpreter mismatch, not a
+missing install: `py` and `python` resolve to whatever the launcher considers
+the default, and Task Scheduler never inherits an activated virtual env.
+
+`schedule_retrain.bat` now resolves the interpreter explicitly and runs
+`preflight.py` before retraining, so you get the list of missing packages (and
+the exact interpreter path) in a couple of seconds instead of a traceback.
+
+To check by hand:
+
+```bat
+py -c "import sys; print(sys.executable)"
+py preflight.py retrain
+```
+
+Fix it with **one** of the following:
+
+1. **Install into the interpreter the task actually uses:**
+   ```bat
+   py -m pip install -r requirements.txt
+   ```
+
+2. **Use a virtual environment** (preferred — keeps the trading deps isolated).
+   Create it at `python_engine\venv` or `Sortino\venv` and the batch file
+   picks it up automatically, no activation needed:
+   ```bat
+   cd python_engine
+   py -m venv venv
+   venv\Scripts\python.exe -m pip install -r requirements.txt
+   ```
+
+3. **Point at a specific interpreter** by setting `SORTINO_PYTHON` before
+   running the batch file:
+   ```bat
+   set SORTINO_PYTHON=C:\Python312\python.exe
+   ```
+
+Note that `psycopg2-binary` only ships wheels for released Python versions. If
+`pip install` tries to build it from source, you are on a Python that is too new
+for the pinned dependency set — use an older interpreter (`py -3.12 -m venv venv`)
+rather than installing a compiler.
+
+`preflight.py` also covers the other entry points:
+
+```bat
+py preflight.py trade   REM trade.py
+py preflight.py api     REM model_api.py
+py preflight.py all
+```

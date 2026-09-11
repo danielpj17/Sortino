@@ -120,20 +120,43 @@ export default async function handler(req, res) {
       upside_loaded: modelData.upside_loaded ?? null,
       loaded_models: modelData.loaded_models ?? null,
       db_active: modelData.db_active ?? null,
+      models_ready: modelData.models_ready ?? null,
+      models_loading: modelData.models_loading ?? null,
+      version_issues: modelData.version_issues ?? null,
     };
     if (!modelRes.ok) {
       issues.push('Model API returned non-OK status');
       nextSteps.push('Check Model API logs on Render/Railway. Ensure MODEL_API_URL is correct in Vercel.');
     }
     if (modelData.model_loaded === false) {
-      issues.push('Model API reports model not loaded');
-      nextSteps.push('Ensure dow30_model.zip exists in python_engine and is deployed.');
+      if (modelData.models_loading) {
+        issues.push('Model API is still loading models (startup in progress)');
+        nextSteps.push('Wait for loading to finish; /health reports models_ready once done.');
+      } else {
+        issues.push('Model API reports model not loaded');
+        nextSteps.push('Ensure dow30_model.zip exists in python_engine and is deployed.');
+      }
+    }
+    // The Model API reports which file it actually loaded. A DB row pointing at a
+    // zip that was never deployed is the common case and must not be silent.
+    for (const issue of modelData.version_issues || []) {
+      issues.push(`Stale model: ${issue}`);
+    }
+    if ((modelData.version_issues || []).length > 0) {
+      nextSteps.push(
+        'Run `python python_engine/reconcile_models.py` to list DB active versions vs the zips ' +
+        'present on the host. Either commit and push the missing model zip, or re-point the ' +
+        'active version with `reconcile_models.py --fix`.'
+      );
     }
     const loaded = modelData.loaded_models || {};
     const dbActive = modelData.db_active || {};
     for (const key of ['sortino', 'upside']) {
       const lv = loaded[key]?.version_number;
       const dv = dbActive[key]?.version_number;
+      // A null loaded version with a non-null DB version means a fallback zip is in
+      // memory; version_issues above already names it, so only flag a genuine
+      // version-to-version divergence here.
       if (dv != null && lv != null && dv !== lv) {
         issues.push(`Model API process may be stale: ${key} DB active v${dv} but loaded v${lv} (restart or wait for hourly reload)`);
         nextSteps.push('Restart the Model API service or wait for automatic reload; verify DATABASE_URL on the Model API host.');

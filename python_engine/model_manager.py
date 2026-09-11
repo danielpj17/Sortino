@@ -161,20 +161,56 @@ def get_active_version_rows(database_url: str, model_dir: Optional[str] = None) 
         conn.close()
 
 
-def get_latest_model(database_url: str, model_dir: str = None, strategy: str = "sortino") -> Optional[PPO]:
+def _fallback_reason(info: Dict) -> str:
+    """Human-readable reason a fallback model was used instead of the DB active version."""
+    if info.get("db_version") is not None:
+        return (
+            f"DB active version {info['db_version']} file missing "
+            f"({info.get('db_model_path')})"
+        )
+    return "no active model_versions row for this strategy"
+
+
+def get_latest_model(
+    database_url: str,
+    model_dir: str = None,
+    strategy: str = "sortino",
+    info_out: Optional[Dict] = None,
+) -> Optional[PPO]:
     """
     Load the most recent active model version for the given strategy.
-    
+
     Args:
         database_url: PostgreSQL connection string
         model_dir: Directory where models are stored (default: python_engine directory)
         strategy: 'sortino' or 'upside'
-    
+        info_out: Optional dict populated with what was ACTUALLY loaded:
+                  db_version, db_model_path, loaded_path, loaded_version, is_fallback,
+                  fallback_reason. Callers use this to report the real on-disk model
+                  instead of echoing the DB row back (a missing version file silently
+                  falls back, and without this the two are indistinguishable).
+
     Returns:
         PPO model instance or None if no model found
     """
     if model_dir is None:
         model_dir = os.path.dirname(__file__)
+
+    info = info_out if info_out is not None else {}
+    info.update({
+        "db_version": None,
+        "db_model_path": None,
+        "loaded_path": None,
+        "loaded_version": None,
+        "is_fallback": False,
+        "fallback_reason": None,
+    })
+
+    def _fallback(path, reason, version=None):
+        info["loaded_path"] = path
+        info["loaded_version"] = version
+        info["is_fallback"] = True
+        info["fallback_reason"] = reason
     
     conn = get_db_connection(database_url)
     try:
@@ -194,35 +230,51 @@ def get_latest_model(database_url: str, model_dir: str = None, strategy: str = "
             default_path = os.path.join(model_dir, f"dow30_{strategy}_model.zip")
             if os.path.isfile(default_path):
                 print(f"Loading default model from {default_path} (model_versions not available)")
+                _fallback(default_path, "model_versions table unavailable")
                 return PPO.load(default_path)
             # Legacy fallback for sortino
             if strategy == "sortino":
                 legacy_path = os.path.join(model_dir, "dow30_model.zip")
                 if os.path.isfile(legacy_path):
                     print(f"Loading legacy model from {legacy_path}")
+                    _fallback(legacy_path, "model_versions table unavailable")
                     return PPO.load(legacy_path)
             return None
         cur.close()
 
         if row:
             model_path, version = row
+            info["db_version"] = int(version) if version is not None else None
+            info["db_model_path"] = model_path
             full_path = os.path.join(model_dir, model_path) if not os.path.isabs(model_path) else model_path
             if os.path.isfile(full_path):
                 print(f"Loading model version {version} ({strategy}) from {full_path}")
+                info["loaded_path"] = full_path
+                info["loaded_version"] = info["db_version"]
                 return PPO.load(full_path)
             else:
-                print(f"Warning: Model file not found: {full_path}")
+                # The DB says this version is active but the weights were never
+                # shipped. Falling back silently means serving an old model while
+                # every status surface reports the new version number.
+                print(
+                    f"[STALE MODEL] {strategy}: DB active version {version} points at "
+                    f"{full_path}, which does not exist on this host. Falling back to a "
+                    f"previous model — predictions will NOT reflect version {version}.",
+                    flush=True,
+                )
 
         # Fallback: try default model path for strategy
         default_path = os.path.join(model_dir, f"dow30_{strategy}_model.zip")
         if os.path.isfile(default_path):
             print(f"Loading default model from {default_path}")
+            _fallback(default_path, _fallback_reason(info))
             return PPO.load(default_path)
         # Legacy fallback for sortino
         if strategy == "sortino":
             legacy_path = os.path.join(model_dir, "dow30_model.zip")
             if os.path.isfile(legacy_path):
                 print(f"Loading legacy model from {legacy_path}")
+                _fallback(legacy_path, _fallback_reason(info))
                 return PPO.load(legacy_path)
 
         return None

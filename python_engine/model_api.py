@@ -56,9 +56,24 @@ REQUIRED_COLS = ["Open", "High", "Low", "Close", "Volume"]
 MODELS = {}  # keyed by strategy: 'sortino', 'upside'
 # Per-strategy metadata after load: version_number, display_name, model_path, loaded_at (ISO UTC)
 LOADED_META = {}
+# Per-strategy record of what get_latest_model ACTUALLY loaded from disk (see
+# model_manager.get_latest_model info_out). Keeps the reported version honest when
+# the DB active version's zip is missing and an older model is silently substituted.
+LOAD_INFO = {}
 MODEL_RELOAD_LOCK = threading.Lock()
 MODEL_RELOAD_INTERVAL = 3600  # seconds; match trade.py — poll DB for new active versions
 LAST_DB_VERSION_CHECK = 0.0
+
+# Startup state. Model loading takes minutes on a cold host, so it runs in a
+# background thread AFTER the port is bound — a platform that probes for an open
+# port (Render, Railway, Fly) fails the deploy if the process loads weights first.
+MODELS_READY = False
+MODELS_LOADING = False
+MODELS_LOAD_ERROR = None
+BOOTSTRAP_STARTED_AT = 0.0
+MODELS_LOADED_AT = 0.0
+_BOOTSTRAP_LOCK = threading.Lock()
+_BOOTSTRAP_STARTED = False
 
 # Map display names to API strategy keys
 STRATEGY_NAME_TO_KEY = {
@@ -84,25 +99,67 @@ def sanitize_ohlcv(df):
 
 
 def _sync_loaded_meta_from_db():
-    """Populate LOADED_META from DB for each key in MODELS; fallback rows if no DB row."""
+    """
+    Populate LOADED_META with what is genuinely loaded in this process.
+
+    This must NOT simply echo the DB row back: when the DB's active version file is
+    missing, get_latest_model falls back to an older zip, and copying the DB row
+    here would report the new version number while serving the old weights — which
+    is exactly the mismatch /health and api/trading/diagnostics.js exist to catch.
+    """
     global LOADED_META
     from model_manager import get_active_version_rows, display_name_for_fallback_file
 
     db_url = os.getenv("DATABASE_URL")
     rows = get_active_version_rows(db_url, MODEL_DIR) if db_url else {}
     now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    LOADED_META = {}
+    meta = {}
     for strat in list(MODELS.keys()):
-        if strat in rows:
-            LOADED_META[strat] = {**rows[strat], "loaded_at": now_iso}
+        info = LOAD_INFO.get(strat, {})
+        is_fallback = bool(info.get("is_fallback"))
+        if not is_fallback and strat in rows:
+            # Loaded exactly what the DB points at.
+            meta[strat] = {**rows[strat], "loaded_at": now_iso, "is_fallback": False}
+        elif is_fallback:
+            # Report the file actually in memory, not the DB's aspiration.
+            meta[strat] = {
+                "version_number": info.get("loaded_version"),
+                "model_path": os.path.basename(info.get("loaded_path") or "") or None,
+                "display_name": display_name_for_fallback_file(strat, MODEL_DIR),
+                "created_at": None,
+                "loaded_at": now_iso,
+                "is_fallback": True,
+                "fallback_reason": info.get("fallback_reason"),
+                "expected_version": info.get("db_version"),
+                "expected_model_path": info.get("db_model_path"),
+            }
         else:
-            LOADED_META[strat] = {
+            meta[strat] = {
                 "version_number": None,
                 "model_path": None,
                 "display_name": display_name_for_fallback_file(strat, MODEL_DIR),
                 "created_at": None,
                 "loaded_at": now_iso,
+                "is_fallback": False,
             }
+    LOADED_META = meta
+
+
+def model_version_issues():
+    """List of human-readable stale/missing-model problems, empty when healthy."""
+    issues = []
+    for strat in sorted(LOADED_META):
+        m = LOADED_META[strat]
+        if m.get("is_fallback"):
+            exp = m.get("expected_version")
+            if exp is not None:
+                issues.append(
+                    f"{strat}: DB active version {exp} ({m.get('expected_model_path')}) is not "
+                    f"present on this host; serving {m.get('model_path')} instead"
+                )
+            else:
+                issues.append(f"{strat}: {m.get('fallback_reason') or 'using fallback model file'}")
+    return issues
 
 
 def _should_reload_from_db() -> bool:
@@ -115,11 +172,15 @@ def _should_reload_from_db() -> bool:
     db_rows = get_active_version_rows(db_url, MODEL_DIR)
     for strat in ("sortino", "upside"):
         db_ver = db_rows.get(strat, {}).get("version_number")
-        loaded_ver = LOADED_META.get(strat, {}).get("version_number")
-        if db_ver != loaded_ver:
-            # DB has a new active version, or we only have file fallback (loaded_ver None) but DB has version
-            if db_ver is not None:
-                return True
+        if db_ver is None:
+            continue
+        # Compare against the DB version we last ACTED on, not the one we managed to
+        # load. If the active version's file is missing we already fell back once;
+        # re-loading every hour would burn minutes of CPU to reach the same fallback.
+        # Reload only when the DB row itself changes.
+        seen_ver = LOAD_INFO.get(strat, {}).get("db_version")
+        if db_ver != seen_ver:
+            return True
     return False
 
 
@@ -142,32 +203,51 @@ def maybe_reload_models_if_stale():
 
 def load_models():
     """Load both Sortino and Upside models on startup or after DB version change."""
-    global MODELS
+    global MODELS, LOAD_INFO
     try:
         from model_manager import get_latest_model
         db_url = os.getenv("DATABASE_URL")
-        MODELS.clear()
+        # Build into locals and swap in at the end: /predict reads MODELS
+        # concurrently, and clearing it up front makes every in-flight request
+        # 503 for the minutes a reload takes.
+        staged = {}
+        staged_info = {}
         for strategy in ["sortino", "upside"]:
             try:
                 model = None
+                info = {}
                 if db_url:
-                    model = get_latest_model(db_url, MODEL_DIR, strategy=strategy)
+                    model = get_latest_model(db_url, MODEL_DIR, strategy=strategy, info_out=info)
                 if model is None:
                     default_path = os.path.join(MODEL_DIR, f"dow30_{strategy}_model.zip")
                     if os.path.isfile(default_path):
                         model = PPO.load(default_path)
+                        info = {**info, "loaded_path": default_path, "loaded_version": None,
+                                "is_fallback": True,
+                                "fallback_reason": info.get("fallback_reason") or "no DATABASE_URL"}
                 if strategy == "sortino" and model is None:
                     # Legacy fallback
                     legacy_path = os.path.join(MODEL_DIR, "dow30_model.zip")
                     if os.path.isfile(legacy_path):
                         model = PPO.load(legacy_path)
+                        info = {**info, "loaded_path": legacy_path, "loaded_version": None,
+                                "is_fallback": True,
+                                "fallback_reason": info.get("fallback_reason") or "no DATABASE_URL"}
                 if model is not None:
-                    MODELS[strategy] = model
-                    print(f"[OK] Loaded {strategy} model", flush=True)
+                    staged[strategy] = model
+                    staged_info[strategy] = info
+                    src = os.path.basename(info.get("loaded_path") or "unknown")
+                    print(f"[OK] Loaded {strategy} model from {src}", flush=True)
             except Exception as e:
                 print(f"load_model ({strategy}) error: {e}", flush=True)
+        if not staged:
+            return False
+        MODELS = staged
+        LOAD_INFO = staged_info
         _sync_loaded_meta_from_db()
-        return len(MODELS) > 0
+        for issue in model_version_issues():
+            print(f"[STALE MODEL] {issue}", flush=True)
+        return True
     except Exception as e:
         print("load_models error:", e, flush=True)
         return False
@@ -183,21 +263,51 @@ def _background_reload_loop():
 
 
 def _bootstrap_model_api():
-    """Load weights once at import (gunicorn/python) and start hourly DB poll thread."""
-    global LAST_DB_VERSION_CHECK
+    """Load weights and start the hourly DB poll thread. Runs off the main thread."""
+    global LAST_DB_VERSION_CHECK, MODELS_READY, MODELS_LOADING, MODELS_LOAD_ERROR
+    global MODELS_LOADED_AT
     print("=" * 50, flush=True)
     print("Sortino Model API — loading models...", flush=True)
     print(f"Model directory: {MODEL_DIR}", flush=True)
+    started = time.time()
     try:
         if load_models():
-            print(f"[OK] Loaded {len(MODELS)} model(s): {list(MODELS.keys())}", flush=True)
+            MODELS_READY = True
+            MODELS_LOADED_AT = time.time()
+            print(
+                f"[OK] Loaded {len(MODELS)} model(s): {list(MODELS.keys())} "
+                f"in {time.time() - started:.1f}s",
+                flush=True,
+            )
         else:
+            MODELS_LOAD_ERROR = "no model files could be loaded"
             print("[WARN] No models loaded. /predict will return 503 until models exist.", flush=True)
     except Exception as e:
+        MODELS_LOAD_ERROR = f"{type(e).__name__}: {e}"
         print(f"[ERROR] Loading models: {e}", flush=True)
         traceback.print_exc()
+    finally:
+        MODELS_LOADING = False
     LAST_DB_VERSION_CHECK = time.time()
     threading.Thread(target=_background_reload_loop, daemon=True).start()
+
+
+def start_bootstrap_async():
+    """
+    Kick off model loading in the background, exactly once per process.
+
+    Deliberately does not block: the WSGI server must bind its port immediately so
+    the host's port scan succeeds. Until loading finishes, /health answers 200 with
+    models_ready=false and /predict answers 503.
+    """
+    global _BOOTSTRAP_STARTED, MODELS_LOADING, BOOTSTRAP_STARTED_AT
+    with _BOOTSTRAP_LOCK:
+        if _BOOTSTRAP_STARTED:
+            return
+        _BOOTSTRAP_STARTED = True
+        MODELS_LOADING = True
+        BOOTSTRAP_STARTED_AT = time.time()
+    threading.Thread(target=_bootstrap_model_api, name="model-bootstrap", daemon=True).start()
 
 
 @app.route("/", methods=["GET", "HEAD"])
@@ -214,14 +324,24 @@ def health():
     db_url = os.getenv("DATABASE_URL")
     db_active = get_active_version_rows(db_url, MODEL_DIR) if db_url else {}
     loaded_models = {k: dict(v) for k, v in LOADED_META.items()}
+    issues = model_version_issues()
     return jsonify({
         "status": "ok",
         "models_loaded": {k: True for k in MODELS},
         "sortino_loaded": "sortino" in MODELS,
         "upside_loaded": "upside" in MODELS,
         "model_loaded": len(MODELS) > 0,
+        "models_ready": MODELS_READY,
+        "models_loading": MODELS_LOADING,
+        "models_load_error": MODELS_LOAD_ERROR,
+        "load_seconds": (
+            round((MODELS_LOADED_AT or time.time()) - BOOTSTRAP_STARTED_AT, 1)
+            if BOOTSTRAP_STARTED_AT else None
+        ),
         "loaded_models": loaded_models,
         "db_active": db_active,
+        "version_issues": issues,
+        "version_mismatch": bool(issues),
         "service": "Sortino Model API",
     })
 
@@ -245,7 +365,15 @@ def predict():
 
         model = MODELS.get(strategy) or MODELS.get("sortino")
         if model is None:
-            return jsonify({"error": "model not loaded"}), 503
+            if MODELS_LOADING:
+                # Transient: the process is up but still loading weights. Callers
+                # should retry rather than record a permanent failure.
+                return jsonify({
+                    "error": "model still loading",
+                    "models_loading": True,
+                    "elapsed_seconds": round(time.time() - BOOTSTRAP_STARTED_AT, 1),
+                }), 503
+            return jsonify({"error": "model not loaded", "models_loading": False}), 503
 
         # region agent log
         _debug_log("model_api.py:predict", "before_download", {"ticker": ticker, "period": period}, "H1")
@@ -389,13 +517,16 @@ def predict():
         return jsonify({"error": str(e)}), 500
 
 
-_bootstrap_model_api()
+# Start loading in the background at import time. Under gunicorn this runs in the
+# worker; under `python model_api.py` it overlaps with app.run() below. Either way
+# the port is bound within seconds instead of after a multi-minute model load.
+start_bootstrap_async()
 
 if __name__ == "__main__":
     print(f"Python version: {sys.version}", flush=True)
     print(f"Working directory: {os.getcwd()}", flush=True)
     port = int(os.getenv("PORT", 5000))
-    print(f"Starting Flask dev server on port {port}...", flush=True)
+    print(f"Binding port {port} now; models continue loading in the background.", flush=True)
     try:
         app.run(host="0.0.0.0", port=port, debug=False)
     except Exception as e:

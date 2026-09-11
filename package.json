@@ -9,7 +9,7 @@
     "dev:backend": "node server.js",
     "build": "vite build",
     "preview": "vite preview",
-    "start": "NODE_ENV=production node server.js",
+    "start": "NODE_ENV=production node --max-old-space-size=350 server.js",
     "start:win": "set NODE_ENV=production && node server.js",
     "icons": "node scripts/create-icons.mjs"
   },
